@@ -1,5 +1,5 @@
 [workspace]
-member = ["clm-core"]
+members = ["clm-core"]
 resolver = "3"
 
 [workspace.package]
