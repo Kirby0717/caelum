@@ -1,0 +1,11 @@
+[workspace]
+member = ["clm-core"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0-alpha.1"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+authors = ["Kirby0717 <niconicoyusei@gmail.com>"]
+description = "Rustで作ってみた普通のテキストエディタ。特徴はなにもなくなんとなく動く。"
+repository = "https://github.com/Kirby0717/caelum"
