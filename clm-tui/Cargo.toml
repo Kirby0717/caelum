@@ -1,0 +1,12 @@
+[package]
+name = "clm-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description.workspace = true
+repository.workspace = true
+
+[dependencies]
+clm-core = { path = "../clm-core" }
+clm-renderer = { path = "../clm-renderer" }

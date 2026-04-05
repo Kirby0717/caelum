@@ -5,3 +5,25 @@ version = 4
 [[package]]
 name = "clm-core"
 version = "0.1.0-alpha.1"
+
+[[package]]
+name = "clm-plugin-api"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "clm-core",
+]
+
+[[package]]
+name = "clm-renderer"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "clm-core",
+]
+
+[[package]]
+name = "clm-tui"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "clm-core",
+ "clm-renderer",
+]
