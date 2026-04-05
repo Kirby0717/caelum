@@ -8,3 +8,4 @@ description.workspace = true
 repository.workspace = true
 
 [dependencies]
+ropey = "1.6"
