@@ -10,3 +10,5 @@ repository.workspace = true
 [dependencies]
 clm-core = { path = "../clm-core" }
 clm-renderer = { path = "../clm-renderer" }
+anyhow = "1"
+crossterm = "0.29"
