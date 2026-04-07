@@ -53,7 +53,7 @@ use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventKind(pub String);
-pub type EventPayload = Box<dyn Any + Send>;
+pub type EventPayload = Box<dyn Any>;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SortKey(pub String);
 
@@ -76,7 +76,7 @@ pub struct SubscriptionId(pub usize);
 pub struct PluginId(pub usize);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PropertyKey(pub String);
-pub type SubscriptionProperty = Box<dyn Any + Send>;
+pub type SubscriptionProperty = Box<dyn Any>;
 
 // 購読
 pub struct Subscription {
@@ -88,7 +88,7 @@ pub struct Subscription {
     pub handler: Box<dyn EventHandler>,
 }
 
-pub trait EventHandler: Send {
+pub trait EventHandler {
     fn handle(&mut self, event: &Event) -> EventResult;
 }
 pub enum EventResult {

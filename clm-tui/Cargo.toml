@@ -12,3 +12,4 @@ clm-core = { path = "../clm-core" }
 clm-renderer = { path = "../clm-renderer" }
 anyhow = "1"
 crossterm = "0.29"
+unicode-width = "0.2.2"
