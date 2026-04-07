@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-pub trait CommandHandler: Send {
+pub trait CommandHandler {
     fn handle(&mut self, args: &[String]) -> u32;
 }
 pub type Command = Box<dyn CommandHandler>;

@@ -74,6 +74,15 @@ impl BufferRegistry {
         self.buffers.insert(id, Buffer::new(id));
         id
     }
+    pub fn open<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> std::io::Result<BufferId> {
+        let id = BufferId(self.next_id);
+        self.next_id += 1;
+        self.buffers.insert(id, Buffer::from_file(id, path)?);
+        Ok(id)
+    }
     pub fn get(&self, id: BufferId) -> Option<&Buffer> {
         self.buffers.get(&id)
     }
