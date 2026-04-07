@@ -38,7 +38,6 @@ impl EditorState {
             commands: CommandRegistry::new(),
         })
     }
-
     pub fn line_count(&self) -> usize {
         self.buffer.rope().len_lines()
     }
@@ -57,6 +56,37 @@ impl EditorState {
         self.cursor.row = self.cursor.row.min(max_row);
         let max_col = self.line_len(self.cursor.row).saturating_sub(1);
         self.cursor.col = self.cursor.col.min(max_col);
+    }
+    pub fn insert_char(&mut self, c: char) {
+        let buffer = &mut self.buffer;
+        let char_idx =
+            buffer.rope().line_to_char(self.cursor.row) + self.cursor.col;
+        buffer.rope_mut().insert_char(char_idx, c);
+        self.cursor.col += 1;
+    }
+    pub fn backspace(&mut self) {
+        let buffer = &mut self.buffer;
+        let char_idx =
+            buffer.rope().line_to_char(self.cursor.row) + self.cursor.col;
+        buffer.rope_mut().remove(char_idx..char_idx + 1);
+        if self.cursor.col == 0 {
+            self.cursor.row = self.cursor.row.saturating_sub(1);
+            self.cursor.col = self.line_len(self.cursor.row).saturating_sub(1);
+        }
+        else {
+            self.cursor.col -= 1;
+        }
+    }
+    pub fn execute_command(&mut self) {
+        match self.command_line.as_str() {
+            "w" => {}
+            "q" => {
+                self.running = false;
+            }
+            _ => {}
+        }
+        self.command_line.clear();
+        self.mode = Mode::Normal;
     }
 }
 

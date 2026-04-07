@@ -6,12 +6,12 @@ use std::collections::HashMap;
 use std::io::stdout;
 use std::rc::Rc;
 
-use clm_core::buffer::BufferId;
 use clm_core::editor::{EditorState, SharedState};
 use clm_core::event::{
     DispatchDescriptor, Event as ClmEvent, EventBus, EventKind, PropertyKey,
     Resolver, SortKey, Subscription, SubscriptionProperty,
 };
+use clm_core::mode::Mode;
 use crossterm::cursor::MoveTo;
 use crossterm::execute;
 use crossterm::style::Print;
@@ -19,6 +19,7 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
     enable_raw_mode,
 };
+use unicode_width::UnicodeWidthChar;
 
 fn main() -> anyhow::Result<()> {
     let file = "./Cargo.toml";
@@ -86,15 +87,12 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn render(
-    state: SharedState,
-    size: (u16, u16),
-) -> anyhow::Result<()> {
+fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     use crossterm::terminal::{Clear, ClearType};
     execute!(stdout(), Clear(ClearType::All))?;
     let state = state.borrow();
     // バッファーの表示
-    for row in 0..size.1.saturating_sub(1) {
+    for row in 0..size.1 - 1 {
         if let Some(line) = state.buffer.rope().get_line(row as usize) {
             execute!(
                 stdout(),
@@ -106,9 +104,41 @@ fn render(
             )?;
         }
     }
+    // ステータスラインの設定
+    execute!(stdout(), MoveTo(0, size.1 - 1))?;
+    match state.mode {
+        Mode::Normal => execute!(stdout(), Print("-- NORMAL --"))?,
+        Mode::Insert => execute!(stdout(), Print("-- INSERT --"))?,
+        Mode::Command => execute!(
+            stdout(),
+            Print("-- COMMAND -- :"),
+            Print(&state.command_line)
+        )?,
+    }
     // カーソルの設定
-    let cursor = state.cursor;
-    execute!(stdout(), MoveTo(cursor.col as u16, cursor.row as u16))?;
+    match state.mode {
+        Mode::Command => {
+            let x = state
+                .command_line
+                .chars()
+                .map(|c| c.width().unwrap_or(0))
+                .sum::<usize>()
+                + "-- COMMAND -- :".len();
+            execute!(stdout(), MoveTo(x as u16, size.1))?;
+        }
+        _ => {
+            let cursor = state.cursor;
+            let x = state
+                .buffer
+                .rope()
+                .line(cursor.row)
+                .chars()
+                .take(cursor.col)
+                .map(|c| c.width().unwrap_or(0) as u16)
+                .sum();
+            execute!(stdout(), MoveTo(x, cursor.row as u16))?;
+        }
+    }
     Ok(())
 }
 
