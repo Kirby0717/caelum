@@ -28,6 +28,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "clm-editing"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "clm-plugin-api",
+]
+
+[[package]]
+name = "clm-modal"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "clm-plugin-api",
+]
+
+[[package]]
+name = "clm-motions"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "clm-plugin-api",
+]
+
+[[package]]
 name = "clm-plugin-api"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -47,6 +68,9 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "clm-core",
+ "clm-editing",
+ "clm-modal",
+ "clm-motions",
  "clm-plugin-api",
  "clm-renderer",
  "crossterm",

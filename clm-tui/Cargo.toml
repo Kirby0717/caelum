@@ -14,3 +14,7 @@ clm-renderer = { path = "../clm-renderer" }
 anyhow = "1"
 crossterm = "0.29"
 unicode-width = "0.2"
+
+clm-modal = { path = "../plugins/clm-modal" }
+clm-editing = { path = "../plugins/clm-editing" }
+clm-motions = { path = "../plugins/clm-motions" }
