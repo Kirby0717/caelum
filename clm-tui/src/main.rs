@@ -73,7 +73,11 @@ fn main() -> anyhow::Result<()> {
             _ => {}
         }
 
-        while bus.dispatch_next(&mut *state.borrow_mut()) {}
+        while bus.dispatch_next(&mut *state.borrow_mut()) {
+            for (event, desc) in clm_core::event::drain_pending_events() {
+                bus.emit(event, desc);
+            }
+        }
 
         render(state.clone(), size)?;
 
