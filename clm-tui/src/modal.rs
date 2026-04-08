@@ -1,4 +1,4 @@
-use clm_plugin_api::*;
+use clm_plugin_api::core::*;
 use crossterm::event::{KeyCode, KeyEvent};
 
 pub struct ModalPlugin();
