@@ -47,6 +47,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "clm-core",
+ "clm-plugin-api",
  "clm-renderer",
  "crossterm",
  "unicode-width",

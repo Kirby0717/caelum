@@ -12,7 +12,7 @@ use clm_core::event::{
     Resolver, SortKey, Subscription, SubscriptionProperty,
 };
 use clm_core::mode::Mode;
-use crossterm::cursor::MoveTo;
+use crossterm::cursor::{MoveTo, SetCursorStyle};
 use crossterm::execute;
 use crossterm::style::Print;
 use crossterm::terminal::{
@@ -33,7 +33,7 @@ fn main() -> anyhow::Result<()> {
             PropertyKey("priority".to_string()),
             Box::new(100) as SubscriptionProperty,
         )]),
-        handler: Box::new(modal::ModalPlugin::new(state.clone())),
+        handler: Box::new(modal::ModalPlugin::new()),
     });
     bus.register_resolver(
         SortKey("priority".to_string()),
@@ -73,7 +73,7 @@ fn main() -> anyhow::Result<()> {
             _ => {}
         }
 
-        while bus.dispatch_next() {}
+        while bus.dispatch_next(&mut *state.borrow_mut()) {}
 
         render(state.clone(), size)?;
 
@@ -117,16 +117,7 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     }
     // カーソルの設定
     match state.mode {
-        Mode::Command => {
-            let x = state
-                .command_line
-                .chars()
-                .map(|c| c.width().unwrap_or(0))
-                .sum::<usize>()
-                + "-- COMMAND -- :".len();
-            execute!(stdout(), MoveTo(x as u16, size.1))?;
-        }
-        _ => {
+        Mode::Normal => {
             let cursor = state.cursor;
             let x = state
                 .buffer
@@ -136,7 +127,40 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
                 .take(cursor.col)
                 .map(|c| c.width().unwrap_or(0) as u16)
                 .sum();
-            execute!(stdout(), MoveTo(x, cursor.row as u16))?;
+            execute!(
+                stdout(),
+                MoveTo(x, cursor.row as u16),
+                SetCursorStyle::SteadyBlock
+            )?;
+        }
+        Mode::Insert => {
+            let cursor = state.cursor;
+            let x = state
+                .buffer
+                .rope()
+                .line(cursor.row)
+                .chars()
+                .take(cursor.col)
+                .map(|c| c.width().unwrap_or(0) as u16)
+                .sum();
+            execute!(
+                stdout(),
+                MoveTo(x, cursor.row as u16),
+                SetCursorStyle::SteadyBar
+            )?;
+        }
+        Mode::Command => {
+            let x = state
+                .command_line
+                .chars()
+                .map(|c| c.width().unwrap_or(0))
+                .sum::<usize>()
+                + "-- COMMAND -- :".len();
+            execute!(
+                stdout(),
+                MoveTo(x as u16, size.1 - 1),
+                SetCursorStyle::SteadyBar
+            )?;
         }
     }
     Ok(())

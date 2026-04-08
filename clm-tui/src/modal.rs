@@ -1,85 +1,100 @@
-use clm_core::editor::SharedState;
-use clm_core::event::{Event, EventHandler, EventResult};
-use clm_core::mode::Mode;
+use clm_plugin_api::*;
 use crossterm::event::{KeyCode, KeyEvent};
 
-pub struct ModalPlugin {
-    state: SharedState,
-}
+pub struct ModalPlugin();
 impl ModalPlugin {
-    pub fn new(state: SharedState) -> Self {
-        Self { state }
+    pub fn new() -> Self {
+        Self()
     }
 }
 impl EventHandler for ModalPlugin {
-    fn handle(&mut self, event: &Event) -> EventResult {
-        let mut state = self.state.borrow_mut();
+    fn handle(
+        &mut self,
+        event: &Event,
+        ctx: &mut dyn PluginContext,
+    ) -> EventResult {
         let Some(key_event) = event.payload.as_ref().downcast_ref::<KeyEvent>()
         else {
             return EventResult::Propagate;
         };
         if key_event.is_press() {
-            match state.mode {
+            match ctx.mode() {
                 Mode::Normal => match key_event.code {
                     KeyCode::Char(c) => match c {
                         'w' => {
-                            state.cursor.row =
-                                state.cursor.row.saturating_sub(1);
-                            state.clamp_cursor();
+                            ctx.cursor_up(1);
                         }
                         'a' => {
-                            state.cursor.col =
-                                state.cursor.col.saturating_sub(1);
-                            state.clamp_cursor();
+                            ctx.cursor_left(1);
                         }
                         's' => {
-                            state.cursor.row += 1;
-                            state.clamp_cursor();
+                            ctx.cursor_down(1);
                         }
                         'd' => {
-                            state.cursor.col += 1;
-                            state.clamp_cursor();
+                            ctx.cursor_right(1);
                         }
                         'j' => {
-                            state.mode = Mode::Insert;
+                            ctx.set_mode(Mode::Insert);
                         }
                         ';' => {
-                            state.mode = Mode::Command;
+                            ctx.set_mode(Mode::Command);
                         }
                         _ => {}
                     },
+                    KeyCode::Up => {
+                        ctx.cursor_up(1);
+                    }
+                    KeyCode::Left => {
+                        ctx.cursor_left(1);
+                    }
+                    KeyCode::Down => {
+                        ctx.cursor_down(1);
+                    }
+                    KeyCode::Right => {
+                        ctx.cursor_right(1);
+                    }
                     KeyCode::Esc => {
-                        state.running = false;
+                        ctx.quit();
                     }
                     _ => {}
                 },
                 Mode::Insert => match key_event.code {
                     KeyCode::Char(c) => {
-                        state.insert_char(c);
+                        ctx.buffer_insert_char_at_cursor(c);
+                    }
+                    KeyCode::Up => {
+                        ctx.cursor_up(1);
+                    }
+                    KeyCode::Left => {
+                        ctx.cursor_left(1);
+                    }
+                    KeyCode::Down => {
+                        ctx.cursor_down(1);
+                    }
+                    KeyCode::Right => {
+                        ctx.cursor_right(1);
                     }
                     KeyCode::Backspace => {
-                        state.backspace();
+                        ctx.buffer_backspace();
                     }
                     KeyCode::Esc => {
-                        state.mode = Mode::Normal;
+                        ctx.set_mode(Mode::Normal);
                     }
                     _ => {}
                 },
                 Mode::Command => match key_event.code {
                     KeyCode::Char(c) => {
-                        state.command_line.push(c);
+                        ctx.command_add_char(c);
                     }
                     KeyCode::Enter => {
-                        state.execute_command();
+                        ctx.command_execute();
                     }
                     KeyCode::Esc => {
-                        state.command_line.clear();
-                        state.mode = Mode::Normal;
+                        ctx.command_clear();
+                        ctx.set_mode(Mode::Normal);
                     }
                     KeyCode::Backspace => {
-                        if state.command_line.pop().is_none() {
-                            state.mode = Mode::Normal;
-                        }
+                        ctx.command_backspace();
                     }
                     _ => {}
                 },

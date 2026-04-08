@@ -51,6 +51,8 @@ HashMap<配信性質, Box<dyn Fn(Option<購読性質>) -> i32>>
 use std::any::Any;
 use std::collections::{HashMap, VecDeque};
 
+use crate::plugin::PluginContext;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventKind(pub String);
 pub type EventPayload = Box<dyn Any>;
@@ -89,7 +91,11 @@ pub struct Subscription {
 }
 
 pub trait EventHandler {
-    fn handle(&mut self, event: &Event) -> EventResult;
+    fn handle(
+        &mut self,
+        event: &Event,
+        ctx: &mut dyn PluginContext,
+    ) -> EventResult;
 }
 pub enum EventResult {
     Handled,
@@ -134,7 +140,7 @@ impl EventBus {
         self.resolvers.insert(sort_key, (property_key, resolver));
     }
     // 配信
-    pub fn dispatch_next(&mut self) -> bool {
+    pub fn dispatch_next(&mut self, ctx: &mut dyn PluginContext) -> bool {
         let Some((event, descriptor)) = self.queue.pop_front()
         else {
             return false;
@@ -172,7 +178,7 @@ impl EventBus {
             // 順番に配信する
             for (_, subscription) in subscriptions {
                 if matches!(
-                    subscription.handler.handle(&event),
+                    subscription.handler.handle(&event, ctx),
                     EventResult::Handled
                 ) {
                     break;
@@ -185,7 +191,7 @@ impl EventBus {
                 if subscription.kind != event.kind {
                     continue;
                 }
-                let _ = subscription.handler.handle(&event);
+                let _ = subscription.handler.handle(&event, ctx);
             }
         }
         true
