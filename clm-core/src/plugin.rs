@@ -1,16 +1,6 @@
-use crate::command::CommandRegistry;
-use crate::editor::SharedState;
-use crate::event::EventBus;
 use crate::mode::Mode;
 
-pub trait Plugin {
-    fn init(
-        &mut self,
-        state: SharedState,
-        bus: &mut EventBus,
-        commands: &mut CommandRegistry,
-    );
-}
+pub trait Plugin {}
 
 pub trait PluginContext {
     // バッファー

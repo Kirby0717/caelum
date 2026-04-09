@@ -49,7 +49,6 @@ HashMap<配信性質, Box<dyn Fn(Option<購読性質>) -> i32>>
 */
 
 use std::any::Any;
-use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 
 use crate::plugin::PluginContext;
@@ -197,14 +196,4 @@ impl EventBus {
         }
         true
     }
-}
-
-thread_local! {
-    static PENDING_EVENTS: RefCell<Vec<(Event, DispatchDescriptor)>> = RefCell::new(Vec::new());
-}
-pub fn emit_event(event: Event, descriptor: DispatchDescriptor) {
-    PENDING_EVENTS.with(|q| q.borrow_mut().push((event, descriptor)));
-}
-pub fn drain_pending_events() -> Vec<(Event, DispatchDescriptor)> {
-    PENDING_EVENTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }

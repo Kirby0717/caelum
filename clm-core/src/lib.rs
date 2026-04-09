@@ -5,3 +5,4 @@ pub mod editor;
 pub mod event;
 pub mod mode;
 pub mod plugin;
+pub mod registry;
