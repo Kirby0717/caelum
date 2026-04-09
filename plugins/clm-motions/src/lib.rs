@@ -37,7 +37,7 @@ impl EventHandler for MotionEventHandler {
         let mode = with_service("modal.mode", |mode: &Rc<RefCell<Mode>>| {
             *mode.borrow()
         })
-        .unwrap();
+        .unwrap_or(Mode::Normal);
         if key_event.state.is_pressed() {
             match mode {
                 Mode::Normal => match &key_event.logical_key {

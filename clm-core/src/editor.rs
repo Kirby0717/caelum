@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use crate::buffer::{Buffer, BufferId};
 use crate::command::CommandRegistry;
+use crate::registry::with_service;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CursorState {
@@ -23,7 +24,6 @@ pub struct EditorState {
     // まずは1つのバッファー
     pub buffer: Buffer,
     pub cursor: CursorState,
-    pub mode: Mode,
     pub running: bool,
     pub command_line: String,
     pub commands: CommandRegistry,
@@ -33,7 +33,6 @@ impl EditorState {
         Self {
             buffer: Buffer::new(BufferId(0)),
             cursor: CursorState::default(),
-            mode: Mode::default(),
             running: true,
             command_line: String::new(),
             commands: CommandRegistry::new(),
@@ -43,7 +42,6 @@ impl EditorState {
         Ok(Self {
             buffer: Buffer::from_file(BufferId(0), path)?,
             cursor: CursorState::default(),
-            mode: Mode::default(),
             running: true,
             command_line: String::new(),
             commands: CommandRegistry::new(),
@@ -52,7 +50,7 @@ impl EditorState {
     pub fn clamp_cursor(&mut self) {
         let max_row = self.buffer_len_lines().saturating_sub(1);
         self.cursor.row = self.cursor.row.min(max_row);
-        let max_col = match self.mode {
+        let max_col = match get_mode() {
             Mode::Insert => self.buffer_line_len_chars(self.cursor.row),
             _ => self
                 .buffer_line_len_chars(self.cursor.row)
@@ -60,6 +58,12 @@ impl EditorState {
         };
         self.cursor.col = self.cursor.col.min(max_col);
     }
+}
+fn get_mode() -> Mode {
+    crate::registry::with_service("modal.mode", |mode: &Rc<RefCell<Mode>>| {
+        *mode.borrow()
+    })
+    .unwrap_or(Mode::Normal)
 }
 impl PluginContext for EditorState {
     fn buffer_len_lines(&self) -> usize {
@@ -149,12 +153,6 @@ impl PluginContext for EditorState {
         self.cursor.col += count;
         self.clamp_cursor();
     }
-    fn mode(&self) -> Mode {
-        self.mode
-    }
-    fn set_mode(&mut self, mode: Mode) {
-        self.mode = mode;
-    }
     fn command_add_char(&mut self, ch: char) {
         self.command_line.push(ch);
     }
@@ -173,7 +171,10 @@ impl PluginContext for EditorState {
             _ => {}
         }
         self.command_line.clear();
-        self.mode = Mode::Normal;
+        // カスのモード更新
+        with_service("modal.mode", |mode: &Rc<RefCell<Mode>>| {
+            *mode.borrow_mut() = Mode::Normal
+        });
     }
     fn quit(&mut self) {
         self.running = false;
@@ -204,9 +205,6 @@ pub trait PluginContext {
     fn cursor_down(&mut self, count: usize);
     fn cursor_left(&mut self, count: usize);
     fn cursor_right(&mut self, count: usize);
-    // モード
-    fn mode(&self) -> Mode;
-    fn set_mode(&mut self, mode: Mode);
     // コマンド
     fn command_add_char(&mut self, ch: char);
     fn command_clear(&mut self);

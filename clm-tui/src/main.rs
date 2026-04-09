@@ -109,6 +109,11 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     use crossterm::terminal::{Clear, ClearType};
     execute!(stdout(), Clear(ClearType::All))?;
     let state = state.borrow();
+    let mode = clm_core::registry::with_service(
+        "modal.mode",
+        |mode: &Rc<RefCell<Mode>>| *mode.borrow(),
+    )
+    .unwrap_or(Mode::Normal);
     // バッファーの表示
     for row in 0..size.1 - 1 {
         if let Some(line) = state.buffer.rope().get_line(row as usize) {
@@ -124,7 +129,7 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     }
     // ステータスラインの設定
     execute!(stdout(), MoveTo(0, size.1 - 1))?;
-    match state.mode {
+    match mode {
         Mode::Normal => execute!(stdout(), Print("-- NORMAL --"))?,
         Mode::Insert => execute!(stdout(), Print("-- INSERT --"))?,
         Mode::Command => execute!(
@@ -134,7 +139,7 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
         )?,
     }
     // カーソルの設定
-    match state.mode {
+    match mode {
         Mode::Normal => {
             let cursor = state.cursor;
             let x = state
