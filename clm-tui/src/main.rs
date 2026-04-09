@@ -6,8 +6,8 @@ use std::rc::Rc;
 use clm_core::command::CommandRegistry;
 use clm_core::editor::{EditorState, Mode, Plugin, SharedState};
 use clm_core::event::{
-    DispatchDescriptor, Event as ClmEvent, EventBus, EventKind, PropertyKey,
-    Resolver, SortKey,
+    DispatchDescriptor, Event as ClmEvent, EventBus, EventKind, EventPayload,
+    PropertyKey, Resolver, SortKey,
 };
 use crossterm::cursor::{MoveTo, SetCursorStyle};
 use crossterm::execute;
@@ -36,8 +36,10 @@ fn main() -> anyhow::Result<()> {
         }) as Resolver,
     );
 
-    let _pulugins: Vec<Box<dyn Plugin>> =
-        vec![Box::new(clm_modal::ModalPlugin::new())];
+    let _pulugins: Vec<Box<dyn Plugin>> = vec![
+        Box::new(clm_modal::ModalPlugin::new()),
+        Box::new(clm_motions::MotionPlugin::new()),
+    ];
     apply_actions(&mut bus, &mut commands);
 
     enable_raw_mode()?;
@@ -52,7 +54,9 @@ fn main() -> anyhow::Result<()> {
                 bus.emit(
                     ClmEvent {
                         kind: EventKind("key_input".to_string()),
-                        payload: Box::new(convert_key_event(key_event)),
+                        payload: EventPayload::KeyInput(convert_key_event(
+                            key_event,
+                        )),
                     },
                     DispatchDescriptor {
                         consumable: true,

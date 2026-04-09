@@ -51,11 +51,57 @@ HashMap<配信性質, Box<dyn Fn(Option<購読性質>) -> i32>>
 use std::any::Any;
 use std::collections::{HashMap, VecDeque};
 
-use crate::editor::PluginContext;
+use crate::editor::{Mode, PluginContext};
+
+/// カーソル移動の種類
+pub enum CursorMove {
+    Up(usize),
+    Down(usize),
+    Left(usize),
+    Right(usize),
+    LineStart,
+    LineEnd,
+    FileTop,
+    FileBottom,
+    WordForward,
+    WordBackward,
+}
+
+/// 編集操作の種類
+pub enum EditAction {
+    InsertChar(char),
+    DeleteCharForward,
+    DeleteCharBackward,
+    DeleteWord,
+    NewLine,
+    NewLineBelow,
+    NewLineAbove,
+}
+
+/// コマンドライン操作
+pub enum CommandLineAction {
+    AddChar(char),
+    Backspace,
+    Execute,
+    Clear,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventKind(pub String);
-pub type EventPayload = Box<dyn Any>;
+pub enum EventPayload {
+    // 入力
+    KeyInput(crate::input::KeyEvent),
+    // カーソル移動要求
+    CursorMove(CursorMove),
+    // モード切替要求
+    Mode(Mode),
+    // テキスト編集要求
+    EditAction(EditAction),
+    // コマンドライン操作
+    CommandLine(CommandLineAction),
+    // 汎用
+    Custom(Box<dyn Any>),
+}
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SortKey(pub String);
 
