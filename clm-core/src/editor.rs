@@ -3,7 +3,6 @@ use std::path::Path;
 use std::rc::Rc;
 
 use crate::buffer::{Buffer, BufferId};
-use crate::command::CommandRegistry;
 use crate::registry::with_service;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -26,7 +25,6 @@ pub struct EditorState {
     pub cursor: CursorState,
     pub running: bool,
     pub command_line: String,
-    pub commands: CommandRegistry,
 }
 impl EditorState {
     pub fn new() -> Self {
@@ -35,7 +33,6 @@ impl EditorState {
             cursor: CursorState::default(),
             running: true,
             command_line: String::new(),
-            commands: CommandRegistry::new(),
         }
     }
     pub fn from_file<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
@@ -44,7 +41,6 @@ impl EditorState {
             cursor: CursorState::default(),
             running: true,
             command_line: String::new(),
-            commands: CommandRegistry::new(),
         })
     }
     pub fn clamp_cursor(&mut self) {

@@ -3,13 +3,14 @@ use std::cell::RefCell;
 use std::io::stdout;
 use std::rc::Rc;
 
-use clm_core::command::CommandRegistry;
 use clm_core::editor::{EditorState, Mode, Plugin, SharedState};
 use clm_core::event::{
-    DispatchDescriptor, Event as ClmEvent, EventBus, EventKind, EventPayload,
-    PropertyKey, Resolver, SortKey,
+    DispatchDescriptor, Event as ClmEvent, EventKind, EventPayload,
+    PropertyKey, SortKey,
 };
-use clm_core::registry::emit_event;
+use clm_core::registry::{
+    Resolver, dispatch_next, emit_event, register_resolver,
+};
 use crossterm::cursor::{MoveTo, SetCursorStyle};
 use crossterm::execute;
 use crossterm::style::Print;
@@ -22,10 +23,8 @@ use unicode_width::UnicodeWidthChar;
 fn main() -> anyhow::Result<()> {
     let file = "./Cargo.toml";
     let state = Rc::new(RefCell::new(EditorState::from_file(file)?));
-    let mut bus = EventBus::new();
-    let mut commands = CommandRegistry::new();
 
-    bus.register_resolver(
+    register_resolver(
         SortKey("priority".to_string()),
         PropertyKey("priority".to_string()),
         Box::new(|priority: Option<&Box<dyn Any + 'static>>| {
@@ -41,7 +40,6 @@ fn main() -> anyhow::Result<()> {
         Box::new(clm_modal::ModalPlugin::new()),
         Box::new(clm_motions::MotionPlugin::new()),
     ];
-    apply_actions(&mut bus, &mut commands);
 
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
@@ -71,9 +69,7 @@ fn main() -> anyhow::Result<()> {
             _ => {}
         }
 
-        while bus.dispatch_next(&mut *state.borrow_mut()) {
-            apply_actions(&mut bus, &mut commands);
-        }
+        while dispatch_next(&mut *state.borrow_mut()) {}
 
         render(state.clone(), size)?;
 
@@ -85,24 +81,6 @@ fn main() -> anyhow::Result<()> {
     disable_raw_mode()?;
     execute!(stdout(), LeaveAlternateScreen)?;
     Ok(())
-}
-
-fn apply_actions(bus: &mut EventBus, commands: &mut CommandRegistry) {
-    use clm_core::registry::*;
-    for action in drain_actions() {
-        match action {
-            RegistryAction::Subscribe(s) => {
-                bus.subscribe(s);
-            }
-            RegistryAction::Unsubscribe(id) => bus.unsubscribe(id),
-            RegistryAction::RegisterResolver(
-                sort_key,
-                property_key,
-                resolver,
-            ) => bus.register_resolver(sort_key, property_key, resolver),
-            RegistryAction::RegisterCommand(n, c) => commands.register(&n, c),
-        }
-    }
 }
 
 fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {

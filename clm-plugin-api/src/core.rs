@@ -5,6 +5,5 @@ pub use clm_core::event::{
     SortKey, Subscription, SubscriptionProperty,
 };
 pub use clm_core::registry::{
-    RegistryAction, drain_actions, emit_event, push_action, register_command,
-    register_service, subscribe, with_service,
+    emit_event, register_command, register_service, subscribe, with_service,
 };
