@@ -1,2 +1,2 @@
 pub mod core;
-pub mod input;
+pub use clm_core::input;

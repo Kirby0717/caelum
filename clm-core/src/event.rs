@@ -51,7 +51,7 @@ HashMap<配信性質, Box<dyn Fn(Option<購読性質>) -> i32>>
 use std::any::Any;
 use std::collections::{HashMap, VecDeque};
 
-use crate::plugin::PluginContext;
+use crate::editor::PluginContext;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventKind(pub String);

@@ -4,13 +4,11 @@ use std::io::stdout;
 use std::rc::Rc;
 
 use clm_core::command::CommandRegistry;
-use clm_core::editor::{EditorState, SharedState};
+use clm_core::editor::{EditorState, Mode, Plugin, SharedState};
 use clm_core::event::{
     DispatchDescriptor, Event as ClmEvent, EventBus, EventKind, PropertyKey,
     Resolver, SortKey,
 };
-use clm_core::mode::Mode;
-use clm_core::plugin::Plugin;
 use crossterm::cursor::{MoveTo, SetCursorStyle};
 use crossterm::execute;
 use crossterm::style::Print;

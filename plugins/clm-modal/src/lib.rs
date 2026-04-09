@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use clm_plugin_api::core::*;
-use clm_plugin_api::input::{KeyEvent, LogicalKey, NamedKey};
+use clm_plugin_api::input::*;
 
 pub struct ModalPlugin();
 impl ModalPlugin {
