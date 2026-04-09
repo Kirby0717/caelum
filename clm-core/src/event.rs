@@ -49,7 +49,7 @@ HashMap<配信性質, Box<dyn Fn(Option<購読性質>) -> i32>>
 */
 
 use std::any::Any;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 use crate::editor::{Mode, PluginContext};
 
@@ -151,7 +151,6 @@ pub enum EventResult {
 pub type Resolver = Box<dyn Fn(Option<&SubscriptionProperty>) -> i32>;
 #[derive(Default)]
 pub struct EventBus {
-    queue: VecDeque<(Event, DispatchDescriptor)>,
     subscriptions: HashMap<SubscriptionId, Subscription>,
     next_subscription_id: usize,
     resolvers: HashMap<SortKey, (PropertyKey, Resolver)>,
@@ -160,10 +159,6 @@ pub struct EventBus {
 impl EventBus {
     pub fn new() -> Self {
         Self::default()
-    }
-    // 配信の予約
-    pub fn emit(&mut self, event: Event, descriptor: DispatchDescriptor) {
-        self.queue.push_back((event, descriptor));
     }
     // 購読登録
     pub fn subscribe(&mut self, subscription: Subscription) -> SubscriptionId {
@@ -187,7 +182,7 @@ impl EventBus {
     }
     // 配信
     pub fn dispatch_next(&mut self, ctx: &mut dyn PluginContext) -> bool {
-        let Some((event, descriptor)) = self.queue.pop_front()
+        let Some((event, descriptor)) = crate::registry::pop_event()
         else {
             return false;
         };

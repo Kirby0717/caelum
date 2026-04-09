@@ -9,6 +9,7 @@ use clm_core::event::{
     DispatchDescriptor, Event as ClmEvent, EventBus, EventKind, EventPayload,
     PropertyKey, Resolver, SortKey,
 };
+use clm_core::registry::emit_event;
 use crossterm::cursor::{MoveTo, SetCursorStyle};
 use crossterm::execute;
 use crossterm::style::Print;
@@ -51,7 +52,7 @@ fn main() -> anyhow::Result<()> {
         use crossterm::event::{Event, read};
         match read()? {
             Event::Key(key_event) => {
-                bus.emit(
+                emit_event(
                     ClmEvent {
                         kind: EventKind("key_input".to_string()),
                         payload: EventPayload::KeyInput(convert_key_event(
@@ -90,7 +91,6 @@ fn apply_actions(bus: &mut EventBus, commands: &mut CommandRegistry) {
     use clm_core::registry::*;
     for action in drain_actions() {
         match action {
-            RegistryAction::EmitEvent(e, d) => bus.emit(e, d),
             RegistryAction::Subscribe(s) => {
                 bus.subscribe(s);
             }
