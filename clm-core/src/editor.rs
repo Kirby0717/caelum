@@ -3,19 +3,44 @@ use std::path::Path;
 use std::rc::Rc;
 
 use crate::buffer::{Buffer, BufferId};
-use crate::registry::with_service;
+use crate::registry::emit_event;
+use crate::value::Value;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CursorState {
     pub row: usize,
     pub col: usize,
 }
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
     #[default]
     Normal,
     Insert,
     Command,
+}
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Mode::Normal => write!(f, "normal"),
+            Mode::Insert => write!(f, "insert"),
+            Mode::Command => write!(f, "command"),
+        }
+    }
+}
+impl TryFrom<Value> for Mode {
+    type Error = ();
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        let Value::Str(mode) = value
+        else {
+            return Err(());
+        };
+        Ok(match mode.as_str() {
+            "normal" => Mode::Normal,
+            "insert" => Mode::Insert,
+            "command" => Mode::Command,
+            _ => return Err(()),
+        })
+    }
 }
 
 pub struct EditorState {
@@ -56,10 +81,11 @@ impl EditorState {
     }
 }
 fn get_mode() -> Mode {
-    crate::registry::with_service("modal.mode", |mode: &Rc<RefCell<Mode>>| {
-        *mode.borrow()
-    })
-    .unwrap_or(Mode::Normal)
+    let Some(mode) = crate::registry::query_service("modal.mode", &[])
+    else {
+        return Mode::Normal;
+    };
+    mode.try_into().unwrap_or(Mode::Normal)
 }
 impl PluginContext for EditorState {
     fn buffer_len_lines(&self) -> usize {
@@ -168,9 +194,16 @@ impl PluginContext for EditorState {
         }
         self.command_line.clear();
         // カスのモード更新
-        with_service("modal.mode", |mode: &Rc<RefCell<Mode>>| {
-            *mode.borrow_mut() = Mode::Normal
-        });
+        emit_event(
+            crate::event::Event {
+                kind: crate::event::EventKind("set_mode".to_string()),
+                payload: crate::event::EventPayload::Mode(Mode::Normal),
+            },
+            crate::event::DispatchDescriptor {
+                consumable: true,
+                sort_keys: vec![crate::event::SortKey("priority".to_string())],
+            },
+        );
     }
     fn quit(&mut self) {
         self.running = false;

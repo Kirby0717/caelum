@@ -48,12 +48,13 @@ HashMap<配信性質, Box<dyn Fn(Option<購読性質>) -> i32>>
 
 */
 
-use std::any::Any;
 use std::collections::HashMap;
 
 use crate::editor::{Mode, PluginContext};
+use crate::value::Value;
 
 /// カーソル移動の種類
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CursorMove {
     Up(usize),
     Down(usize),
@@ -68,6 +69,7 @@ pub enum CursorMove {
 }
 
 /// 編集操作の種類
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditAction {
     InsertChar(char),
     DeleteCharForward,
@@ -79,6 +81,7 @@ pub enum EditAction {
 }
 
 /// コマンドライン操作
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandLineAction {
     AddChar(char),
     Backspace,
@@ -88,6 +91,7 @@ pub enum CommandLineAction {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventKind(pub String);
+#[derive(Debug, Clone, PartialEq)]
 pub enum EventPayload {
     // 入力
     KeyInput(crate::input::KeyEvent),
@@ -100,17 +104,19 @@ pub enum EventPayload {
     // コマンドライン操作
     CommandLine(CommandLineAction),
     // 汎用
-    Custom(Box<dyn Any>),
+    Custom(Value),
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SortKey(pub String);
 
 // イベント
+#[derive(Clone)]
 pub struct Event {
     pub kind: EventKind,
     pub payload: EventPayload,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchDescriptor {
     // 配信方法 true: 消費型 false: ブロードキャスト型
     pub consumable: bool,
@@ -124,25 +130,19 @@ pub struct SubscriptionId(pub usize);
 pub struct PluginId(pub usize);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PropertyKey(pub String);
-pub type SubscriptionProperty = Box<dyn Any>;
 
 // 購読
 pub struct Subscription {
     pub plugin_id: PluginId,
     pub kind: EventKind,
     // 購読性質
-    pub properties: HashMap<PropertyKey, SubscriptionProperty>,
+    pub properties: HashMap<PropertyKey, Value>,
 
-    pub handler: Box<dyn EventHandler>,
+    pub handler: EventHandler,
 }
 
-pub trait EventHandler {
-    fn handle(
-        &mut self,
-        event: &Event,
-        ctx: &mut dyn PluginContext,
-    ) -> EventResult;
-}
+pub type EventHandler =
+    Box<dyn Fn(&Event, &mut dyn PluginContext) -> EventResult>;
 pub enum EventResult {
     Handled,
     Propagate,

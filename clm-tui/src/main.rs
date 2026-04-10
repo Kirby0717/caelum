@@ -1,4 +1,3 @@
-use std::any::Any;
 use std::cell::RefCell;
 use std::io::stdout;
 use std::rc::Rc;
@@ -9,8 +8,9 @@ use clm_core::event::{
     PropertyKey, SortKey,
 };
 use clm_core::registry::{
-    Resolver, dispatch_next, emit_event, register_resolver,
+    Resolver, dispatch_next, emit_event, query_service, register_resolver,
 };
+use clm_core::value::Value;
 use crossterm::cursor::{MoveTo, SetCursorStyle};
 use crossterm::execute;
 use crossterm::style::Print;
@@ -27,12 +27,12 @@ fn main() -> anyhow::Result<()> {
     register_resolver(
         SortKey("priority".to_string()),
         PropertyKey("priority".to_string()),
-        Box::new(|priority: Option<&Box<dyn Any + 'static>>| {
-            let Some(priority) = priority
+        Box::new(|priority: Option<&Value>| {
+            let Some(Value::Int(priority)) = priority
             else {
-                return i32::MIN;
+                return i64::MIN;
             };
-            priority.downcast_ref::<i32>().copied().unwrap_or(i32::MIN)
+            *priority
         }) as Resolver,
     );
 
@@ -87,11 +87,9 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     use crossterm::terminal::{Clear, ClearType};
     execute!(stdout(), Clear(ClearType::All))?;
     let state = state.borrow();
-    let mode = clm_core::registry::with_service(
-        "modal.mode",
-        |mode: &Rc<RefCell<Mode>>| *mode.borrow(),
-    )
-    .unwrap_or(Mode::Normal);
+    let mode = query_service("modal.mode", &[])
+        .and_then(|mode| mode.try_into().ok())
+        .unwrap_or(Mode::Normal);
     // バッファーの表示
     for row in 0..size.1 - 1 {
         if let Some(line) = state.buffer.rope().get_line(row as usize) {

@@ -1,18 +1,16 @@
-use std::any::Any;
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 
 use crate::editor::PluginContext;
 use crate::event::{
     DispatchDescriptor, Event, EventResult, PropertyKey, SortKey, Subscription,
-    SubscriptionId, SubscriptionProperty,
+    SubscriptionId,
 };
+use crate::value::Value;
 
-pub type Resolver = Box<dyn Fn(Option<&SubscriptionProperty>) -> i32>;
-pub trait CommandHandler {
-    fn handle(&mut self, args: &[String]) -> u32;
-}
-pub type Command = Box<dyn CommandHandler>;
+pub type Resolver = Box<dyn Fn(Option<&Value>) -> i64>;
+pub type Command = Box<dyn Fn(&[String]) -> Vec<(Event, DispatchDescriptor)>>;
+pub type Service = Box<dyn Fn(&[Value]) -> Value>;
 
 thread_local! {
     static EVENT_QUEUE: RefCell<VecDeque<(Event, DispatchDescriptor)>> = const { RefCell::new(VecDeque::new()) };
@@ -20,7 +18,7 @@ thread_local! {
     static NEXT_SUBSCRIPTION_ID: RefCell<usize> = const { RefCell::new(0) };
     static RESOLVERS: RefCell<HashMap<SortKey, (PropertyKey, Resolver)>> = RefCell::new(HashMap::new());
     static COMMANDS: RefCell<HashMap<String, Command>> = RefCell::new(HashMap::new());
-    static SERVICES: RefCell<HashMap<String, Box<dyn Any>>> = RefCell::new(HashMap::new());
+    static SERVICES: RefCell<HashMap<String, Service>> = RefCell::new(HashMap::new());
 }
 
 pub fn emit_event(event: Event, descriptor: DispatchDescriptor) {
@@ -59,10 +57,10 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
     if descriptor.consumable {
         RESOLVERS.with(|resolvers| {
             SUBSCRIPTIONS.with(|subscriptions| {
-                let resolvers = resolvers.borrow_mut();
+                let resolvers = resolvers.borrow();
                 let mut subscriptions = subscriptions.borrow_mut();
                 // 変換関数の解決
-                let resolvers = descriptor
+                let mut resolvers = descriptor
                     .sort_keys
                     .iter()
                     // TODO: 警告ログ
@@ -74,7 +72,7 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
                     .filter(|subscription| subscription.kind == event.kind)
                     .map(|subscription| {
                         let key = resolvers
-                            .iter()
+                            .iter_mut()
                             .map(|(key, resolver)| {
                                 resolver(subscription.properties.get(key))
                             })
@@ -91,7 +89,7 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
                 // 順番に配信する
                 for (_, subscription) in subscriptions {
                     if matches!(
-                        subscription.handler.handle(&event, ctx),
+                        (subscription.handler)(&event, ctx),
                         EventResult::Handled
                     ) {
                         break;
@@ -107,7 +105,7 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
                 if subscription.kind != event.kind {
                     continue;
                 }
-                let _ = subscription.handler.handle(&event, ctx);
+                let _ = (subscription.handler)(&event, ctx);
             }
         })
     }
@@ -117,20 +115,23 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
 pub fn register_command(name: &str, command: Command) {
     COMMANDS.with(|c| c.borrow_mut().insert(name.to_string(), command));
 }
-pub fn execute_command(name: &str, args: &[String]) -> Option<u32> {
+pub fn execute_command(name: &str, args: &[String]) {
     COMMANDS.with(|c| {
-        c.borrow_mut()
-            .get_mut(name)
-            .map(|command| command.handle(args))
-    })
+        if let Some(command) = c.borrow_mut().get_mut(name) {
+            let events = command(args);
+            EVENT_QUEUE.with(|q| {
+                let mut queue = q.borrow_mut();
+                for (event, descriptor) in events {
+                    queue.push_back((event, descriptor));
+                }
+            });
+        }
+    });
 }
 
-pub fn register_service<T: Any + 'static>(name: &str, value: T) {
-    SERVICES.with(|s| s.borrow_mut().insert(name.to_string(), Box::new(value)));
+pub fn register_service(name: &str, service: Service) {
+    SERVICES.with(|s| s.borrow_mut().insert(name.to_string(), service));
 }
-pub fn with_service<T: 'static, R>(
-    name: &str,
-    f: impl FnOnce(&T) -> R,
-) -> Option<R> {
-    SERVICES.with(|s| s.borrow().get(name)?.downcast_ref::<T>().map(f))
+pub fn query_service(name: &str, args: &[Value]) -> Option<Value> {
+    SERVICES.with(|s| s.borrow().get(name).map(|service| service(args)))
 }
