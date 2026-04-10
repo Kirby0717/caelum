@@ -1,6 +1,4 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use clm_plugin_api::core::*;
 use clm_plugin_api::input::*;

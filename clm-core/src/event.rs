@@ -103,6 +103,8 @@ pub enum EventPayload {
     EditAction(EditAction),
     // コマンドライン操作
     CommandLine(CommandLineAction),
+    // 終了
+    Exit,
     // 汎用
     Custom(Value),
 }

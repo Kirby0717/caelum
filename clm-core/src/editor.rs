@@ -3,7 +3,7 @@ use std::path::Path;
 use std::rc::Rc;
 
 use crate::buffer::{Buffer, BufferId};
-use crate::registry::emit_event;
+use crate::registry::{emit_event, execute_command};
 use crate::value::Value;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -185,15 +185,8 @@ impl PluginContext for EditorState {
         self.command_line.pop();
     }
     fn command_execute(&mut self) {
-        match self.command_line.as_str() {
-            "w" => {}
-            "q" => {
-                self.running = false;
-            }
-            _ => {}
-        }
+        execute_command(&self.command_line, &[]);
         self.command_line.clear();
-        // カスのモード更新
         emit_event(
             crate::event::Event {
                 kind: crate::event::EventKind("set_mode".to_string()),

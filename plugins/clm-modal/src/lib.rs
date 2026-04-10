@@ -30,6 +30,30 @@ impl ModalPlugin {
             )]),
             handler: Box::new(mode_event(mode.clone())),
         });
+        subscribe(Subscription {
+            plugin_id: PluginId(0),
+            kind: EventKind("quit".to_string()),
+            properties: HashMap::from([(
+                PropertyKey("priority".to_string()),
+                Value::Int(500),
+            )]),
+            handler: Box::new(quit_event),
+        });
+        register_command(
+            "q",
+            Box::new(|_| {
+                vec![(
+                    Event {
+                        kind: EventKind("quit".to_string()),
+                        payload: EventPayload::Exit,
+                    },
+                    DispatchDescriptor {
+                        consumable: false,
+                        sort_keys: vec![],
+                    },
+                )]
+            }),
+        );
         {
             let mode = mode.clone();
             register_service(
@@ -42,6 +66,10 @@ impl ModalPlugin {
 }
 impl Plugin for ModalPlugin {}
 
+fn quit_event(_event: &Event, ctx: &mut dyn PluginContext) -> EventResult {
+    ctx.quit();
+    EventResult::Handled
+}
 fn cursor_event(event: &Event, ctx: &mut dyn PluginContext) -> EventResult {
     let EventPayload::CursorMove(cursor_move) = &event.payload
     else {
