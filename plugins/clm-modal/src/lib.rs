@@ -99,11 +99,11 @@ impl ModalPlugin {
             EditAction::InsertText(text) => {
                 let char_idx = ctx.buffer_line_to_char(cursor.row) + cursor.col;
                 ctx.buffer_insert(char_idx, text);
-                cursor.col += 1;
+                cursor.col += text.chars().count();
             }
             EditAction::DeleteCharForward => {
                 let char_idx = ctx.buffer_line_to_char(cursor.row) + cursor.col;
-                if char_idx + 1 == ctx.buffer_len_chars() {
+                if ctx.buffer_len_chars() <= char_idx {
                     return EventResult::Handled;
                 }
                 ctx.buffer_remove((char_idx, char_idx + 1));
@@ -122,6 +122,12 @@ impl ModalPlugin {
                 else {
                     cursor.col -= 1;
                 }
+            }
+            EditAction::NewLine => {
+                let char_idx = ctx.buffer_line_to_char(cursor.row) + cursor.col;
+                ctx.buffer_insert_char(char_idx, '\n');
+                cursor.row += 1;
+                cursor.col = 0;
             }
             _ => return EventResult::Propagate,
         }

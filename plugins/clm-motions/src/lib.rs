@@ -77,6 +77,9 @@ impl MotionPlugin {
                         emit_edit(EditAction::InsertText(c.clone()));
                     }
                     LogicalKey::Named(named) => match named {
+                        NamedKey::Enter => {
+                            emit_edit(EditAction::NewLine);
+                        }
                         NamedKey::ArrowUp => {
                             emit_cursor_move(CursorMove::Up(1));
                         }
