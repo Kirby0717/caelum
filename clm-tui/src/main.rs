@@ -4,14 +4,14 @@ use std::rc::Rc;
 
 use clm_core::editor::{CursorState, EditorState, Mode, SharedState};
 use clm_core::event::{
-    DispatchDescriptor, Event as ClmEvent, EventData, EventKind, PropertyKey,
-    SortKey,
+    DispatchDescriptor, Event as ClmEvent, EventKind, PropertyKey, SortKey,
 };
 use clm_core::registry::{
     Resolver, add_plugin, dispatch_next, emit_event, query_service,
     register_resolver,
 };
 use clm_core::value::Value;
+use clm_plugin_api::core::EventData;
 use crossterm::cursor::{MoveTo, SetCursorStyle};
 use crossterm::execute;
 use crossterm::style::Print;

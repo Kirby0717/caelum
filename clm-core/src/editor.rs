@@ -3,6 +3,8 @@ use std::path::Path;
 use std::rc::Rc;
 
 use crate::buffer::{Buffer, BufferId};
+use crate::event::EventKind;
+use crate::event::data::EventData;
 use crate::registry::{emit_event, execute_command};
 use crate::value::Value;
 
@@ -104,14 +106,17 @@ impl PluginContext for EditorState {
     fn buffer_len_lines(&self) -> usize {
         self.buffer.rope().len_lines()
     }
-    fn buffer_line(&self, row: usize) -> Option<String> {
+    fn buffer_len_chars(&self) -> usize {
+        self.buffer.rope().len_chars()
+    }
+    fn buffer_line(&self, line_idx: usize) -> Option<String> {
         self.buffer
             .rope()
-            .get_line(row)
+            .get_line(line_idx)
             .map(|line| line.chars().collect())
     }
-    fn buffer_line_len_chars(&self, row: usize) -> usize {
-        let line = self.buffer.rope().line(row);
+    fn buffer_line_len_chars(&self, line_idx: usize) -> usize {
+        let line = self.buffer.rope().line(line_idx);
         let len = line.len_chars();
         if len > 0 && line.char(len - 1) == '\n' {
             len - 1
@@ -120,36 +125,15 @@ impl PluginContext for EditorState {
             len
         }
     }
-    fn buffer_insert_char(&mut self, row: usize, col: usize, ch: char) {
-        debug_assert!(row < self.buffer_len_lines());
-        debug_assert!(col <= self.buffer_line_len_chars(row));
-        let buffer = &mut self.buffer;
-        let char_idx = buffer.rope().line_to_char(row) + col;
-        buffer.rope_mut().insert_char(char_idx, ch);
+    fn buffer_line_to_char(&self, line_idx: usize) -> usize {
+        self.buffer.rope().line_to_char(line_idx)
     }
-    /*fn buffer_insert_char_at_cursor(&mut self, ch: char) {
-        let buffer = &mut self.buffer;
-        let char_idx =
-            buffer.rope().line_to_char(self.cursor.row) + self.cursor.col;
-        buffer.rope_mut().insert_char(char_idx, ch);
-        self.cursor.col += 1;
+    fn buffer_insert_char(&mut self, char_idx: usize, ch: char) {
+        self.buffer.rope_mut().insert_char(char_idx, ch);
     }
-    fn buffer_backspace(&mut self) {
-        let char_idx =
-            self.buffer.rope().line_to_char(self.cursor.row) + self.cursor.col;
-        if char_idx == 0 {
-            return;
-        }
-        let char_idx = char_idx - 1;
-        if self.cursor.col == 0 {
-            self.cursor.row = self.cursor.row.saturating_sub(1);
-            self.cursor.col = self.buffer_line_len_chars(self.cursor.row);
-        }
-        else {
-            self.cursor.col -= 1;
-        }
-        self.buffer.rope_mut().remove(char_idx..char_idx + 1);
-    }*/
+    fn buffer_insert(&mut self, char_idx: usize, text: &str) {
+        self.buffer.rope_mut().insert(char_idx, text);
+    }
     fn buffer_remove(&mut self, char_range: (usize, usize)) {
         self.buffer.rope_mut().remove(char_range.0..char_range.1);
     }
@@ -167,8 +151,8 @@ impl PluginContext for EditorState {
         self.command_line.clear();
         emit_event(
             crate::event::Event {
-                kind: crate::event::EventKind("set_mode".to_string()),
-                data: crate::event::EventData::Mode(Mode::Normal),
+                kind: EventKind("set_mode".to_string()),
+                data: EventData::Mode(Mode::Normal),
             },
             crate::event::DispatchDescriptor {
                 consumable: true,
@@ -186,9 +170,12 @@ pub type SharedState = Rc<RefCell<EditorState>>;
 pub trait PluginContext {
     // バッファー
     fn buffer_len_lines(&self) -> usize;
-    fn buffer_line(&self, row: usize) -> Option<String>;
-    fn buffer_line_len_chars(&self, row: usize) -> usize;
-    fn buffer_insert_char(&mut self, row: usize, col: usize, ch: char);
+    fn buffer_len_chars(&self) -> usize;
+    fn buffer_line(&self, line_idx: usize) -> Option<String>;
+    fn buffer_line_len_chars(&self, line_idx: usize) -> usize;
+    fn buffer_line_to_char(&self, line_idx: usize) -> usize;
+    fn buffer_insert_char(&mut self, char_idx: usize, ch: char);
+    fn buffer_insert(&mut self, char_idx: usize, text: &str);
     fn buffer_remove(&mut self, char_range: (usize, usize));
     /*
     fn buffer_insert_char_at_cursor(&mut self, ch: char);

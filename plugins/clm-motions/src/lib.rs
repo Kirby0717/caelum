@@ -74,9 +74,7 @@ impl MotionPlugin {
                 },
                 Mode::Insert => match &key.logical_key {
                     LogicalKey::Character(c) => {
-                        for c in c.chars() {
-                            //ctx.buffer_insert_char_at_cursor(c);
-                        }
+                        emit_edit(EditAction::InsertText(c.clone()));
                     }
                     LogicalKey::Named(named) => match named {
                         NamedKey::ArrowUp => {
@@ -92,7 +90,10 @@ impl MotionPlugin {
                             emit_cursor_move(CursorMove::Right(1));
                         }
                         NamedKey::Backspace => {
-                            //ctx.buffer_backspace();
+                            emit_edit(EditAction::DeleteCharBackward);
+                        }
+                        NamedKey::Delete => {
+                            emit_edit(EditAction::DeleteCharForward);
                         }
                         NamedKey::Escape => {
                             emit_set_mode(Mode::Normal);
@@ -158,6 +159,18 @@ fn emit_cursor_move(event: CursorMove) {
         Event {
             kind: EventKind("cursor_move".to_string()),
             data: EventData::Motion(event),
+        },
+        DispatchDescriptor {
+            consumable: true,
+            sort_keys: vec![SortKey("priority".to_string())],
+        },
+    );
+}
+fn emit_edit(edit: EditAction) {
+    emit_event(
+        Event {
+            kind: EventKind("edit".to_string()),
+            data: EventData::Edit(edit),
         },
         DispatchDescriptor {
             consumable: true,

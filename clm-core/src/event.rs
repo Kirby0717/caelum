@@ -48,62 +48,16 @@ HashMap<配信性質, Box<dyn Fn(Option<購読性質>) -> i32>>
 
 */
 
+pub mod data;
+
 use std::collections::HashMap;
 
-use crate::editor::{Mode, PluginContext};
-use crate::input::KeyEvent;
+use crate::editor::PluginContext;
+use crate::event::data::EventData;
 use crate::value::Value;
-
-/// カーソル移動の種類
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CursorMove {
-    Up(usize),
-    Down(usize),
-    Left(usize),
-    Right(usize),
-    LineStart,
-    LineEnd,
-    FileTop,
-    FileBottom,
-    WordForward,
-    WordBackward,
-}
-
-/// 編集操作の種類
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EditAction {
-    InsertChar(char),
-    DeleteCharForward,
-    DeleteCharBackward,
-    DeleteWord,
-    NewLine,
-    NewLineBelow,
-    NewLineAbove,
-}
-
-/// コマンドライン操作
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CommandLineAction {
-    AddChar(char),
-    Backspace,
-    Execute,
-    Clear,
-}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventKind(pub String);
-#[derive(Debug, Clone, PartialEq)]
-pub enum EventData {
-    None,
-    Key(KeyEvent),
-    Motion(CursorMove),
-    Mode(Mode),
-    Edit(EditAction),
-    CommandLine(CommandLineAction),
-    Custom(Value),
-}
-#[rustfmt::skip]
-#[allow(unused)]
 pub trait Plugin {
     fn init(&mut self, plugin_id: PluginId);
 }

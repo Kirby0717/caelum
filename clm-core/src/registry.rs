@@ -2,9 +2,10 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 
 use crate::editor::PluginContext;
+use crate::event::data::EventData;
 use crate::event::{
-    DispatchDescriptor, Event, EventData, EventResult, Plugin, PluginId,
-    PropertyKey, RawHandler, SortKey, Subscription, SubscriptionId,
+    DispatchDescriptor, Event, EventResult, Plugin, PluginId, PropertyKey,
+    RawHandler, SortKey, Subscription, SubscriptionId,
 };
 use crate::value::Value;
 

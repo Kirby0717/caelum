@@ -30,6 +30,27 @@ impl ModalPlugin {
 
 #[clm_plugin_api::clm_handlers]
 impl ModalPlugin {
+    fn set_mode(
+        &mut self,
+        data: &EventData,
+        ctx: &mut dyn PluginContext,
+    ) -> EventResult {
+        let EventData::Mode(mode) = data
+        else {
+            return EventResult::Propagate;
+        };
+        *self.mode.borrow_mut() = *mode;
+        self.clamp_cursor(ctx);
+        EventResult::Handled
+    }
+    fn quit(
+        &mut self,
+        _data: &EventData,
+        ctx: &mut dyn PluginContext,
+    ) -> EventResult {
+        ctx.quit();
+        EventResult::Handled
+    }
     fn cursor_move(
         &mut self,
         data: &EventData,
@@ -59,24 +80,71 @@ impl ModalPlugin {
         self.clamp_cursor(ctx);
         EventResult::Handled
     }
-    fn set_mode(
+    fn edit(
         &mut self,
         data: &EventData,
-        _ctx: &mut dyn PluginContext,
+        ctx: &mut dyn PluginContext,
     ) -> EventResult {
-        let EventData::Mode(mode) = data
+        let EventData::Edit(edit) = data
         else {
             return EventResult::Propagate;
         };
-        *self.mode.borrow_mut() = *mode;
+        let mut cursor = self.cursor.borrow_mut();
+        match edit {
+            EditAction::InsertChar(c) => {
+                let char_idx = ctx.buffer_line_to_char(cursor.row) + cursor.col;
+                ctx.buffer_insert_char(char_idx, *c);
+                cursor.col += 1;
+            }
+            EditAction::InsertText(text) => {
+                let char_idx = ctx.buffer_line_to_char(cursor.row) + cursor.col;
+                ctx.buffer_insert(char_idx, text);
+                cursor.col += 1;
+            }
+            EditAction::DeleteCharForward => {
+                let char_idx = ctx.buffer_line_to_char(cursor.row) + cursor.col;
+                if char_idx + 1 == ctx.buffer_len_chars() {
+                    return EventResult::Handled;
+                }
+                ctx.buffer_remove((char_idx, char_idx + 1));
+            }
+            EditAction::DeleteCharBackward => {
+                let char_idx = ctx.buffer_line_to_char(cursor.row) + cursor.col;
+                if char_idx == 0 {
+                    return EventResult::Handled;
+                }
+                let char_idx = char_idx - 1;
+                ctx.buffer_remove((char_idx, char_idx + 1));
+                if cursor.col == 0 {
+                    cursor.row = cursor.row.saturating_sub(1);
+                    cursor.col = ctx.buffer_line_len_chars(cursor.row);
+                }
+                else {
+                    cursor.col -= 1;
+                }
+            }
+            _ => return EventResult::Propagate,
+        }
         EventResult::Handled
     }
-    fn quit(
+    fn buffer(
         &mut self,
-        _data: &EventData,
+        data: &EventData,
         ctx: &mut dyn PluginContext,
     ) -> EventResult {
-        ctx.quit();
+        let EventData::BufferOp(buffer_op) = data
+        else {
+            return EventResult::Propagate;
+        };
+        match buffer_op {
+            BufferOp::Insert { char_idx, text } => {
+                ctx.buffer_insert(*char_idx, text);
+            }
+            BufferOp::Remove(range) => {
+                ctx.buffer_remove(*range);
+            }
+        }
+
         EventResult::Handled
     }
 }
@@ -85,15 +153,6 @@ impl Plugin for ModalPlugin {
     fn init(&mut self, plugin_id: PluginId) {
         // Modalプラグインは最初に読み込まれるべき
         debug_assert_eq!(plugin_id, PluginId(0));
-        subscribe(Subscription {
-            plugin_id,
-            kind: EventKind("cursor_move".to_string()),
-            properties: HashMap::from([(
-                PropertyKey("priority".to_string()),
-                Value::Int(500),
-            )]),
-            handler: Self::CURSOR_MOVE,
-        });
         subscribe(Subscription {
             plugin_id,
             kind: EventKind("set_mode".to_string()),
@@ -111,6 +170,33 @@ impl Plugin for ModalPlugin {
                 Value::Int(500),
             )]),
             handler: Self::QUIT,
+        });
+        subscribe(Subscription {
+            plugin_id,
+            kind: EventKind("cursor_move".to_string()),
+            properties: HashMap::from([(
+                PropertyKey("priority".to_string()),
+                Value::Int(500),
+            )]),
+            handler: Self::CURSOR_MOVE,
+        });
+        subscribe(Subscription {
+            plugin_id,
+            kind: EventKind("edit".to_string()),
+            properties: HashMap::from([(
+                PropertyKey("priority".to_string()),
+                Value::Int(500),
+            )]),
+            handler: Self::EDIT,
+        });
+        subscribe(Subscription {
+            plugin_id,
+            kind: EventKind("buffer".to_string()),
+            properties: HashMap::from([(
+                PropertyKey("priority".to_string()),
+                Value::Int(500),
+            )]),
+            handler: Self::BUFFER,
         });
         register_command(
             "q",
