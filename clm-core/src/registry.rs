@@ -3,8 +3,8 @@ use std::collections::{HashMap, VecDeque};
 
 use crate::editor::PluginContext;
 use crate::event::{
-    DispatchDescriptor, Event, EventPayload, EventResult, Plugin, PluginId,
-    PropertyKey, SortKey, Subscription, SubscriptionId,
+    DispatchDescriptor, Event, EventData, EventResult, Plugin, PluginId,
+    PropertyKey, RawHandler, SortKey, Subscription, SubscriptionId,
 };
 use crate::value::Value;
 
@@ -90,7 +90,7 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
                                 resolver(subscription.properties.get(key))
                             })
                             .collect::<Vec<_>>();
-                        (key, subscription.plugin_id)
+                        (key, (subscription.handler, subscription.plugin_id))
                     })
                     .collect::<Vec<_>>();
                 // 降順ソート
@@ -102,9 +102,14 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
                 // 順番に配信する
                 PLUGINS.with(|p| {
                     let mut plugins = p.borrow_mut();
-                    for (_, id) in subscriptions {
+                    for (_, (handler, id)) in subscriptions {
                         if let Some(plugin) = plugins.get_mut(&id) {
-                            match call_handler(plugin.as_mut(), &event, ctx) {
+                            match call_handler(
+                                handler,
+                                plugin.as_mut(),
+                                &event.data,
+                                ctx,
+                            ) {
                                 EventResult::Propagate => continue,
                                 EventResult::Handled => break,
                             }
@@ -127,7 +132,12 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
                     else {
                         continue;
                     };
-                    call_handler(plugin.as_mut(), &event, ctx);
+                    call_handler(
+                        subscription.handler,
+                        plugin.as_mut(),
+                        &event.data,
+                        ctx,
+                    );
                 }
             });
         })
@@ -135,23 +145,12 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
     true
 }
 fn call_handler(
+    handler: RawHandler,
     plugin: &mut dyn Plugin,
-    event: &Event,
+    data: &EventData,
     ctx: &mut dyn PluginContext,
 ) -> EventResult {
-    match &event.payload {
-        EventPayload::KeyInput(key) => plugin.on_key_input(key, ctx),
-        EventPayload::CursorMove(mv) => plugin.on_cursor_move(*mv, ctx),
-        EventPayload::Mode(mode) => plugin.on_mode_change(*mode, ctx),
-        EventPayload::EditAction(action) => plugin.on_edit_action(action, ctx),
-        EventPayload::CommandLine(action) => {
-            plugin.on_command_line(action, ctx)
-        }
-        EventPayload::Exit => plugin.on_exit(ctx),
-        EventPayload::Custom(value) => {
-            plugin.on_custom(&event.kind.0, value, ctx)
-        }
-    }
+    unsafe { handler(plugin as *mut dyn Plugin as *mut (), data, ctx) }
 }
 
 pub fn register_command(name: &str, command: Command) {

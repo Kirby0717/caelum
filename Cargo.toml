@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "clm-core",
+  "clm-macros",
   "clm-plugin-api",
   "clm-renderer",
   "clm-tui",

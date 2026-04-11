@@ -4,8 +4,8 @@ use std::rc::Rc;
 
 use clm_core::editor::{CursorState, EditorState, Mode, SharedState};
 use clm_core::event::{
-    DispatchDescriptor, Event as ClmEvent, EventKind, EventPayload,
-    PropertyKey, SortKey,
+    DispatchDescriptor, Event as ClmEvent, EventData, EventKind, PropertyKey,
+    SortKey,
 };
 use clm_core::registry::{
     Resolver, add_plugin, dispatch_next, emit_event, query_service,
@@ -52,9 +52,7 @@ fn main() -> anyhow::Result<()> {
                 emit_event(
                     ClmEvent {
                         kind: EventKind("key_input".to_string()),
-                        payload: EventPayload::KeyInput(convert_key_event(
-                            key_event,
-                        )),
+                        data: EventData::KeyInput(convert_key_event(key_event)),
                     },
                     DispatchDescriptor {
                         consumable: true,

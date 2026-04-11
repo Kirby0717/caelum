@@ -168,7 +168,7 @@ impl PluginContext for EditorState {
         emit_event(
             crate::event::Event {
                 kind: crate::event::EventKind("set_mode".to_string()),
-                payload: crate::event::EventPayload::Mode(Mode::Normal),
+                data: crate::event::EventData::Mode(Mode::Normal),
             },
             crate::event::DispatchDescriptor {
                 consumable: true,

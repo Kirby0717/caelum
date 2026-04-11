@@ -4,12 +4,6 @@ use std::rc::Rc;
 
 use clm_plugin_api::core::*;
 
-/*
--- TODO --
-PluginContextの整理
-    カーソル移動は消してModalへ移行
-*/
-
 #[derive(Debug, Default)]
 pub struct ModalPlugin {
     mode: Rc<RefCell<Mode>>,
@@ -33,6 +27,60 @@ impl ModalPlugin {
         cursor.col = cursor.col.min(max_col);
     }
 }
+
+#[clm_plugin_api::clm_handlers]
+impl ModalPlugin {
+    fn cursor_move(
+        &mut self,
+        data: &EventData,
+        ctx: &mut dyn PluginContext,
+    ) -> EventResult {
+        let EventData::CursorMove(mv) = data
+        else {
+            return EventResult::Propagate;
+        };
+        match *mv {
+            CursorMove::Up(count) => {
+                let row = self.cursor.borrow().row;
+                self.cursor.borrow_mut().row = row.saturating_sub(count);
+            }
+            CursorMove::Down(count) => {
+                self.cursor.borrow_mut().row += count;
+            }
+            CursorMove::Left(count) => {
+                let col = self.cursor.borrow().col;
+                self.cursor.borrow_mut().col = col.saturating_sub(count);
+            }
+            CursorMove::Right(count) => {
+                self.cursor.borrow_mut().col += count;
+            }
+            _ => return EventResult::Propagate,
+        }
+        self.clamp_cursor(ctx);
+        EventResult::Handled
+    }
+    fn set_mode(
+        &mut self,
+        data: &EventData,
+        _ctx: &mut dyn PluginContext,
+    ) -> EventResult {
+        let EventData::Mode(mode) = data
+        else {
+            return EventResult::Propagate;
+        };
+        *self.mode.borrow_mut() = *mode;
+        EventResult::Handled
+    }
+    fn quit(
+        &mut self,
+        _data: &EventData,
+        ctx: &mut dyn PluginContext,
+    ) -> EventResult {
+        ctx.quit();
+        EventResult::Handled
+    }
+}
+
 impl Plugin for ModalPlugin {
     fn init(&mut self, plugin_id: PluginId) {
         // Modalプラグインは最初に読み込まれるべき
@@ -44,6 +92,7 @@ impl Plugin for ModalPlugin {
                 PropertyKey("priority".to_string()),
                 Value::Int(500),
             )]),
+            handler: Self::CURSOR_MOVE,
         });
         subscribe(Subscription {
             plugin_id,
@@ -52,6 +101,7 @@ impl Plugin for ModalPlugin {
                 PropertyKey("priority".to_string()),
                 Value::Int(500),
             )]),
+            handler: Self::SET_MODE,
         });
         subscribe(Subscription {
             plugin_id,
@@ -60,6 +110,7 @@ impl Plugin for ModalPlugin {
                 PropertyKey("priority".to_string()),
                 Value::Int(500),
             )]),
+            handler: Self::QUIT,
         });
         register_command(
             "q",
@@ -67,7 +118,7 @@ impl Plugin for ModalPlugin {
                 vec![(
                     Event {
                         kind: EventKind("quit".to_string()),
-                        payload: EventPayload::Exit,
+                        data: EventData::Exit,
                     },
                     DispatchDescriptor {
                         consumable: false,
@@ -89,29 +140,11 @@ impl Plugin for ModalPlugin {
             );
         }
     }
-    fn on_cursor_move(
+    /*fn on_cursor_move(
         &mut self,
         mv: CursorMove,
         ctx: &mut dyn PluginContext,
     ) -> EventResult {
-        match mv {
-            CursorMove::Up(count) => {
-                let row = self.cursor.borrow().row;
-                self.cursor.borrow_mut().row = row.saturating_sub(count);
-            }
-            CursorMove::Down(count) => {
-                self.cursor.borrow_mut().row += count;
-            }
-            CursorMove::Left(count) => {
-                let col = self.cursor.borrow().col;
-                self.cursor.borrow_mut().col = col.saturating_sub(count);
-            }
-            CursorMove::Right(count) => {
-                self.cursor.borrow_mut().col += count;
-            }
-            _ => return EventResult::Propagate,
-        }
-        self.clamp_cursor(ctx);
         EventResult::Handled
     }
     fn on_mode_change(
@@ -125,5 +158,5 @@ impl Plugin for ModalPlugin {
     fn on_exit(&mut self, ctx: &mut dyn PluginContext) -> EventResult {
         ctx.quit();
         EventResult::Handled
-    }
+    }*/
 }

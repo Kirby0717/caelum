@@ -10,22 +10,17 @@ impl MotionPlugin {
         Self()
     }
 }
-impl Plugin for MotionPlugin {
-    fn init(&mut self, plugin_id: PluginId) {
-        subscribe(Subscription {
-            plugin_id,
-            kind: EventKind("key_input".to_string()),
-            properties: HashMap::from([(
-                PropertyKey("priority".to_string()),
-                Value::Int(500),
-            )]),
-        });
-    }
-    fn on_key_input(
+#[clm_plugin_api::clm_handlers]
+impl MotionPlugin {
+    fn key_input(
         &mut self,
-        key: &KeyEvent,
+        data: &EventData,
         ctx: &mut dyn PluginContext,
     ) -> EventResult {
+        let EventData::KeyInput(key) = data
+        else {
+            return EventResult::Propagate;
+        };
         let mode = query_service("modal.mode", &[])
             .and_then(|mode| mode.try_into().ok())
             .unwrap_or(Mode::Normal);
@@ -132,12 +127,25 @@ impl Plugin for MotionPlugin {
         EventResult::Handled
     }
 }
+impl Plugin for MotionPlugin {
+    fn init(&mut self, plugin_id: PluginId) {
+        subscribe(Subscription {
+            plugin_id,
+            kind: EventKind("key_input".to_string()),
+            properties: HashMap::from([(
+                PropertyKey("priority".to_string()),
+                Value::Int(500),
+            )]),
+            handler: Self::KEY_INPUT,
+        });
+    }
+}
 
 fn emit_set_mode(mode: Mode) {
     emit_event(
         Event {
             kind: EventKind("set_mode".to_string()),
-            payload: EventPayload::Mode(mode),
+            data: EventData::Mode(mode),
         },
         DispatchDescriptor {
             consumable: true,
@@ -149,7 +157,7 @@ fn emit_cursor_move(event: CursorMove) {
     emit_event(
         Event {
             kind: EventKind("cursor_move".to_string()),
-            payload: EventPayload::CursorMove(event),
+            data: EventData::CursorMove(event),
         },
         DispatchDescriptor {
             consumable: true,

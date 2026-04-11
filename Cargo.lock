@@ -35,6 +35,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clm-macros"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "clm-modal"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -53,6 +62,7 @@ name = "clm-plugin-api"
 version = "0.1.0-alpha.1"
 dependencies = [
  "clm-core",
+ "clm-macros",
 ]
 
 [[package]]

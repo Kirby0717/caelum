@@ -93,7 +93,8 @@ pub enum CommandLineAction {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventKind(pub String);
 #[derive(Debug, Clone, PartialEq)]
-pub enum EventPayload {
+pub enum EventData {
+    None,
     // 入力
     KeyInput(KeyEvent),
     // カーソル移動要求
@@ -113,27 +114,6 @@ pub enum EventPayload {
 #[allow(unused)]
 pub trait Plugin {
     fn init(&mut self, plugin_id: PluginId);
-    fn on_key_input(&mut self, key: &KeyEvent, ctx: &mut dyn PluginContext) -> EventResult {
-        EventResult::Propagate
-    }
-    fn on_cursor_move(&mut self, mv: CursorMove, ctx: &mut dyn PluginContext) -> EventResult {
-        EventResult::Propagate
-    }
-    fn on_mode_change(&mut self, mode: Mode, ctx: &mut dyn PluginContext) -> EventResult {
-        EventResult::Propagate
-    }
-    fn on_edit_action(&mut self, action: &EditAction, ctx: &mut dyn PluginContext) -> EventResult {
-        EventResult::Propagate
-    }
-    fn on_command_line(&mut self, action: &CommandLineAction, ctx: &mut dyn PluginContext) -> EventResult {
-        EventResult::Propagate
-    }
-    fn on_exit(&mut self, ctx: &mut dyn PluginContext) -> EventResult {
-        EventResult::Propagate
-    }
-    fn on_custom(&mut self, kind: &str, value: &Value, ctx: &mut dyn PluginContext) -> EventResult {
-        EventResult::Propagate
-    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SortKey(pub String);
@@ -142,7 +122,7 @@ pub struct SortKey(pub String);
 #[derive(Clone)]
 pub struct Event {
     pub kind: EventKind,
-    pub payload: EventPayload,
+    pub data: EventData,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,12 +140,15 @@ pub struct PluginId(pub usize);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PropertyKey(pub String);
 
+pub type RawHandler =
+    unsafe fn(*mut (), &EventData, &mut dyn PluginContext) -> EventResult;
 // 購読
 pub struct Subscription {
     pub plugin_id: PluginId,
     pub kind: EventKind,
     // 購読性質
     pub properties: HashMap<PropertyKey, Value>,
+    pub handler: RawHandler,
 }
 
 pub type EventHandler =
