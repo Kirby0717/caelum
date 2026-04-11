@@ -17,7 +17,7 @@ impl MotionPlugin {
         data: &EventData,
         ctx: &mut dyn PluginContext,
     ) -> EventResult {
-        let EventData::KeyInput(key) = data
+        let EventData::Key(key) = data
         else {
             return EventResult::Propagate;
         };
@@ -157,7 +157,7 @@ fn emit_cursor_move(event: CursorMove) {
     emit_event(
         Event {
             kind: EventKind("cursor_move".to_string()),
-            data: EventData::CursorMove(event),
+            data: EventData::Motion(event),
         },
         DispatchDescriptor {
             consumable: true,

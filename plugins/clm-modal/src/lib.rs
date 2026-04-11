@@ -35,7 +35,7 @@ impl ModalPlugin {
         data: &EventData,
         ctx: &mut dyn PluginContext,
     ) -> EventResult {
-        let EventData::CursorMove(mv) = data
+        let EventData::Motion(mv) = data
         else {
             return EventResult::Propagate;
         };
@@ -118,7 +118,7 @@ impl Plugin for ModalPlugin {
                 vec![(
                     Event {
                         kind: EventKind("quit".to_string()),
-                        data: EventData::Exit,
+                        data: EventData::None,
                     },
                     DispatchDescriptor {
                         consumable: false,
@@ -140,23 +140,4 @@ impl Plugin for ModalPlugin {
             );
         }
     }
-    /*fn on_cursor_move(
-        &mut self,
-        mv: CursorMove,
-        ctx: &mut dyn PluginContext,
-    ) -> EventResult {
-        EventResult::Handled
-    }
-    fn on_mode_change(
-        &mut self,
-        mode: Mode,
-        _ctx: &mut dyn PluginContext,
-    ) -> EventResult {
-        *self.mode.borrow_mut() = mode;
-        EventResult::Handled
-    }
-    fn on_exit(&mut self, ctx: &mut dyn PluginContext) -> EventResult {
-        ctx.quit();
-        EventResult::Handled
-    }*/
 }

@@ -52,7 +52,7 @@ fn main() -> anyhow::Result<()> {
                 emit_event(
                     ClmEvent {
                         kind: EventKind("key_input".to_string()),
-                        data: EventData::KeyInput(convert_key_event(key_event)),
+                        data: EventData::Key(convert_key_event(key_event)),
                     },
                     DispatchDescriptor {
                         consumable: true,

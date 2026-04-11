@@ -95,19 +95,11 @@ pub struct EventKind(pub String);
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventData {
     None,
-    // 入力
-    KeyInput(KeyEvent),
-    // カーソル移動要求
-    CursorMove(CursorMove),
-    // モード切替要求
+    Key(KeyEvent),
+    Motion(CursorMove),
     Mode(Mode),
-    // テキスト編集要求
-    EditAction(EditAction),
-    // コマンドライン操作
+    Edit(EditAction),
     CommandLine(CommandLineAction),
-    // 終了
-    Exit,
-    // 汎用
     Custom(Value),
 }
 #[rustfmt::skip]
