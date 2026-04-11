@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Null,
@@ -6,5 +8,5 @@ pub enum Value {
     Float(f64),
     Str(String),
     List(Vec<Value>),
-    Map(Vec<(String, Value)>),
+    Map(HashMap<String, Value>),
 }

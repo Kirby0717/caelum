@@ -2,13 +2,14 @@ use std::cell::RefCell;
 use std::io::stdout;
 use std::rc::Rc;
 
-use clm_core::editor::{EditorState, Mode, Plugin, SharedState};
+use clm_core::editor::{CursorState, EditorState, Mode, SharedState};
 use clm_core::event::{
     DispatchDescriptor, Event as ClmEvent, EventKind, EventPayload,
     PropertyKey, SortKey,
 };
 use clm_core::registry::{
-    Resolver, dispatch_next, emit_event, query_service, register_resolver,
+    Resolver, add_plugin, dispatch_next, emit_event, query_service,
+    register_resolver,
 };
 use clm_core::value::Value;
 use crossterm::cursor::{MoveTo, SetCursorStyle};
@@ -36,10 +37,8 @@ fn main() -> anyhow::Result<()> {
         }) as Resolver,
     );
 
-    let _pulugins: Vec<Box<dyn Plugin>> = vec![
-        Box::new(clm_modal::ModalPlugin::new()),
-        Box::new(clm_motions::MotionPlugin::new()),
-    ];
+    add_plugin(clm_modal::ModalPlugin::new());
+    add_plugin(clm_motions::MotionPlugin::new());
 
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;
@@ -90,6 +89,9 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     let mode = query_service("modal.mode", &[])
         .and_then(|mode| mode.try_into().ok())
         .unwrap_or(Mode::Normal);
+    let cursor: CursorState = query_service("modal.cursor", &[])
+        .and_then(|cursor| cursor.try_into().ok())
+        .unwrap_or_default();
     // バッファーの表示
     for row in 0..size.1 - 1 {
         if let Some(line) = state.buffer.rope().get_line(row as usize) {
@@ -117,7 +119,6 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     // カーソルの設定
     match mode {
         Mode::Normal => {
-            let cursor = state.cursor;
             let x = state
                 .buffer
                 .rope()
@@ -133,7 +134,6 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
             )?;
         }
         Mode::Insert => {
-            let cursor = state.cursor;
             let x = state
                 .buffer
                 .rope()

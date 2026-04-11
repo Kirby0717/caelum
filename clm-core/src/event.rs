@@ -51,6 +51,7 @@ HashMap<配信性質, Box<dyn Fn(Option<購読性質>) -> i32>>
 use std::collections::HashMap;
 
 use crate::editor::{Mode, PluginContext};
+use crate::input::KeyEvent;
 use crate::value::Value;
 
 /// カーソル移動の種類
@@ -94,7 +95,7 @@ pub struct EventKind(pub String);
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventPayload {
     // 入力
-    KeyInput(crate::input::KeyEvent),
+    KeyInput(KeyEvent),
     // カーソル移動要求
     CursorMove(CursorMove),
     // モード切替要求
@@ -107,6 +108,32 @@ pub enum EventPayload {
     Exit,
     // 汎用
     Custom(Value),
+}
+#[rustfmt::skip]
+#[allow(unused)]
+pub trait Plugin {
+    fn init(&mut self, plugin_id: PluginId);
+    fn on_key_input(&mut self, key: &KeyEvent, ctx: &mut dyn PluginContext) -> EventResult {
+        EventResult::Propagate
+    }
+    fn on_cursor_move(&mut self, mv: CursorMove, ctx: &mut dyn PluginContext) -> EventResult {
+        EventResult::Propagate
+    }
+    fn on_mode_change(&mut self, mode: Mode, ctx: &mut dyn PluginContext) -> EventResult {
+        EventResult::Propagate
+    }
+    fn on_edit_action(&mut self, action: &EditAction, ctx: &mut dyn PluginContext) -> EventResult {
+        EventResult::Propagate
+    }
+    fn on_command_line(&mut self, action: &CommandLineAction, ctx: &mut dyn PluginContext) -> EventResult {
+        EventResult::Propagate
+    }
+    fn on_exit(&mut self, ctx: &mut dyn PluginContext) -> EventResult {
+        EventResult::Propagate
+    }
+    fn on_custom(&mut self, kind: &str, value: &Value, ctx: &mut dyn PluginContext) -> EventResult {
+        EventResult::Propagate
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SortKey(pub String);
@@ -139,8 +166,6 @@ pub struct Subscription {
     pub kind: EventKind,
     // 購読性質
     pub properties: HashMap<PropertyKey, Value>,
-
-    pub handler: EventHandler,
 }
 
 pub type EventHandler =
