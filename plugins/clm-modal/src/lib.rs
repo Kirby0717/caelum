@@ -1,21 +1,19 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 use clm_plugin_api::core::*;
 
 #[derive(Debug, Default)]
 pub struct ModalPlugin {
-    mode: Rc<RefCell<Mode>>,
-    cursor: Rc<RefCell<CursorState>>,
-    command_line: Rc<RefCell<String>>,
+    mode: Mode,
+    cursor: CursorState,
+    command_line: String,
     // TODO: コマンドの途中経過も管理する
 }
 impl ModalPlugin {
     pub fn new() -> Self {
-        let mode = Rc::new(RefCell::new(Mode::Normal));
-        let cursor = Rc::new(RefCell::new(CursorState::default()));
-        let command_line = Rc::new(RefCell::new(String::new()));
+        let mode = Mode::Normal;
+        let cursor = CursorState::default();
+        let command_line = String::new();
         Self {
             mode,
             cursor,
@@ -24,10 +22,10 @@ impl ModalPlugin {
     }
 
     pub fn clamp_cursor(&mut self, ctx: &mut dyn PluginContext) {
-        let mut cursor = self.cursor.borrow_mut();
+        let cursor = &mut self.cursor;
         let max_row = ctx.buffer_len_lines().saturating_sub(1);
         cursor.row = cursor.row.min(max_row);
-        let max_col = match *self.mode.borrow() {
+        let max_col = match self.mode {
             Mode::Insert => ctx.buffer_line_len_chars(cursor.row),
             _ => ctx.buffer_line_len_chars(cursor.row).saturating_sub(1),
         };
@@ -37,7 +35,7 @@ impl ModalPlugin {
 
 #[clm_plugin_api::clm_handlers]
 impl ModalPlugin {
-    fn set_mode(
+    fn on_set_mode(
         &mut self,
         data: &EventData,
         ctx: &mut dyn PluginContext,
@@ -46,11 +44,11 @@ impl ModalPlugin {
         else {
             return EventResult::Propagate;
         };
-        *self.mode.borrow_mut() = *mode;
+        self.mode = *mode;
         self.clamp_cursor(ctx);
         EventResult::Handled
     }
-    fn quit(
+    fn on_quit(
         &mut self,
         _data: &EventData,
         ctx: &mut dyn PluginContext,
@@ -58,7 +56,7 @@ impl ModalPlugin {
         ctx.quit();
         EventResult::Handled
     }
-    fn cursor_move(
+    fn on_cursor_move(
         &mut self,
         data: &EventData,
         ctx: &mut dyn PluginContext,
@@ -69,25 +67,25 @@ impl ModalPlugin {
         };
         match *mv {
             CursorMove::Up(count) => {
-                let row = self.cursor.borrow().row;
-                self.cursor.borrow_mut().row = row.saturating_sub(count);
+                let row = self.cursor.row;
+                self.cursor.row = row.saturating_sub(count);
             }
             CursorMove::Down(count) => {
-                self.cursor.borrow_mut().row += count;
+                self.cursor.row += count;
             }
             CursorMove::Left(count) => {
-                let col = self.cursor.borrow().col;
-                self.cursor.borrow_mut().col = col.saturating_sub(count);
+                let col = self.cursor.col;
+                self.cursor.col = col.saturating_sub(count);
             }
             CursorMove::Right(count) => {
-                self.cursor.borrow_mut().col += count;
+                self.cursor.col += count;
             }
             _ => return EventResult::Propagate,
         }
         self.clamp_cursor(ctx);
         EventResult::Handled
     }
-    fn edit(
+    fn on_edit(
         &mut self,
         data: &EventData,
         ctx: &mut dyn PluginContext,
@@ -96,7 +94,7 @@ impl ModalPlugin {
         else {
             return EventResult::Propagate;
         };
-        let mut cursor = self.cursor.borrow_mut();
+        let cursor = &mut self.cursor;
         match edit {
             EditAction::InsertChar(c) => {
                 let char_idx = ctx.buffer_line_to_char(cursor.row) + cursor.col;
@@ -140,7 +138,7 @@ impl ModalPlugin {
         }
         EventResult::Handled
     }
-    fn buffer(
+    fn on_buffer_op(
         &mut self,
         data: &EventData,
         ctx: &mut dyn PluginContext,
@@ -159,7 +157,7 @@ impl ModalPlugin {
         }
         EventResult::Handled
     }
-    fn command_line(
+    fn on_command_line_action(
         &mut self,
         data: &EventData,
         _ctx: &mut dyn PluginContext,
@@ -168,7 +166,7 @@ impl ModalPlugin {
         else {
             return EventResult::Propagate;
         };
-        let mut command_line = self.command_line.borrow_mut();
+        let command_line = &mut self.command_line;
         match cmd_action {
             CommandLineAction::AddChar(c) => {
                 command_line.push(*c);
@@ -177,9 +175,9 @@ impl ModalPlugin {
                 command_line.pop();
             }
             CommandLineAction::Execute => {
-                execute_command(&command_line, &[]);
+                execute_command(command_line, &[]);
                 command_line.clear();
-                *self.mode.borrow_mut() = Mode::Normal;
+                self.mode = Mode::Normal;
             }
             CommandLineAction::Clear => {
                 command_line.clear();
@@ -187,66 +185,67 @@ impl ModalPlugin {
         }
         EventResult::Handled
     }
+    fn mode(&self, _args: &[Value]) -> Value {
+        Value::Str(self.mode.to_string())
+    }
+    fn cursor(&self, _args: &[Value]) -> Value {
+        self.cursor.into()
+    }
+    fn command_line(&self, _args: &[Value]) -> Value {
+        Value::Str(self.command_line.clone())
+    }
 }
 
 impl Plugin for ModalPlugin {
-    fn init(&mut self, plugin_id: PluginId) {
-        // Modalプラグインは最初に読み込まれるべき
-        debug_assert_eq!(plugin_id, PluginId(0));
-        subscribe(Subscription {
-            plugin_id,
-            kind: EventKind("set_mode".to_string()),
-            properties: HashMap::from([(
+    fn init(&mut self, reg: PluginRegistrar) {
+        reg.subscribe(
+            "set_mode",
+            HashMap::from([(
                 PropertyKey("priority".to_string()),
                 Value::Int(500),
             )]),
-            handler: Self::SET_MODE,
-        });
-        subscribe(Subscription {
-            plugin_id,
-            kind: EventKind("quit".to_string()),
-            properties: HashMap::from([(
+            Self::ON_SET_MODE,
+        );
+        reg.subscribe(
+            "quit",
+            HashMap::from([(
                 PropertyKey("priority".to_string()),
                 Value::Int(500),
             )]),
-            handler: Self::QUIT,
-        });
-        subscribe(Subscription {
-            plugin_id,
-            kind: EventKind("cursor_move".to_string()),
-            properties: HashMap::from([(
+            Self::ON_QUIT,
+        );
+        reg.subscribe(
+            "cursor_move",
+            HashMap::from([(
                 PropertyKey("priority".to_string()),
                 Value::Int(500),
             )]),
-            handler: Self::CURSOR_MOVE,
-        });
-        subscribe(Subscription {
-            plugin_id,
-            kind: EventKind("edit".to_string()),
-            properties: HashMap::from([(
+            Self::ON_CURSOR_MOVE,
+        );
+        reg.subscribe(
+            "edit",
+            HashMap::from([(
                 PropertyKey("priority".to_string()),
                 Value::Int(500),
             )]),
-            handler: Self::EDIT,
-        });
-        subscribe(Subscription {
-            plugin_id,
-            kind: EventKind("buffer".to_string()),
-            properties: HashMap::from([(
+            Self::ON_EDIT,
+        );
+        reg.subscribe(
+            "buffer_op",
+            HashMap::from([(
                 PropertyKey("priority".to_string()),
                 Value::Int(500),
             )]),
-            handler: Self::BUFFER,
-        });
-        subscribe(Subscription {
-            plugin_id,
-            kind: EventKind("command_line".to_string()),
-            properties: HashMap::from([(
+            Self::ON_BUFFER_OP,
+        );
+        reg.subscribe(
+            "command_line_action",
+            HashMap::from([(
                 PropertyKey("priority".to_string()),
                 Value::Int(500),
             )]),
-            handler: Self::COMMAND_LINE,
-        });
+            Self::ON_COMMAND_LINE_ACTION,
+        );
         register_command(
             "q",
             Box::new(|_| {
@@ -262,22 +261,8 @@ impl Plugin for ModalPlugin {
                 )]
             }),
         );
-        {
-            let mode = self.mode.clone();
-            register_service(
-                "modal.mode",
-                Box::new(move |_| Value::Str(mode.borrow().to_string())),
-            );
-            let cursor = self.cursor.clone();
-            register_service(
-                "modal.cursor",
-                Box::new(move |_| (*cursor.borrow()).into()),
-            );
-            let command_line = self.command_line.clone();
-            register_service(
-                "modal.command_line",
-                Box::new(move |_| Value::Str(command_line.borrow().clone())),
-            );
-        }
+        reg.register_service("modal.mode", Self::MODE);
+        reg.register_service("modal.cursor", Self::CURSOR);
+        reg.register_service("modal.command_line", Self::COMMAND_LINE);
     }
 }

@@ -3,12 +3,12 @@ pub use clm_core::event::data::{
     BufferOp, CommandLineAction, CursorMove, EditAction, EventData,
 };
 pub use clm_core::event::{
-    DispatchDescriptor, Event, EventHandler, EventKind, EventResult, Plugin,
-    PluginId, PropertyKey, RawHandler, SortKey, Subscription,
+    DispatchDescriptor, Event, EventKind, EventResult, Plugin, PluginId,
+    PluginRegistrar, PropertyKey, RawEventHandler, SortKey, Subscription,
 };
 pub use clm_core::registry::{
-    add_plugin, emit_event, execute_command, query_service, register_command,
-    register_resolver, register_service, subscribe,
+    RawServiceHandler, Service, add_plugin, emit_event, execute_command,
+    query_service, register_command, register_resolver,
 };
 pub use clm_core::value::Value;
 
@@ -51,7 +51,7 @@ pub fn emit_edit(edit: EditAction) {
 pub fn emit_command_line(cmd_action: CommandLineAction) {
     emit_event(
         Event {
-            kind: EventKind("command_line".to_string()),
+            kind: EventKind("command_line_action".to_string()),
             data: EventData::CommandLine(cmd_action),
         },
         DispatchDescriptor {

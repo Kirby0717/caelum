@@ -14,12 +14,12 @@ pub fn clm_handlers(_attr: TokenStream, item: TokenStream) -> TokenStream {
             continue;
         };
         let sig = &method.sig;
-        // &mut selfの検査
+        // &selfの取得
         let Some(receiver) = sig.receiver()
         else {
             continue;
         };
-        if !(receiver.reference.is_some() && receiver.mutability.is_some()) {
+        if receiver.reference.is_none() {
             continue;
         }
 
@@ -27,18 +27,35 @@ pub fn clm_handlers(_attr: TokenStream, item: TokenStream) -> TokenStream {
         let const_name =
             format_ident!("{}", method_name.to_string().to_uppercase());
 
-        handler_consts.push(quote! {
-            pub const #const_name: ::clm_plugin_api::core::RawHandler = {
-                unsafe fn __raw_handler(
-                    ptr: *mut (),
-                    data: &::clm_plugin_api::core::EventData,
-                    ctx: &mut dyn ::clm_plugin_api::core::PluginContext
-                ) -> ::clm_plugin_api::core::EventResult {
-                    (&mut *(ptr as *mut #type_name)).#method_name(data, ctx)
-                }
-                __raw_handler
-            };
-        });
+        // EventHandler
+        if receiver.mutability.is_some() && sig.inputs.len() == 3 {
+            handler_consts.push(quote! {
+                const #const_name: ::clm_plugin_api::core::RawEventHandler = {
+                    unsafe fn __raw_event_handler(
+                        ptr: *mut (),
+                        data: &::clm_plugin_api::core::EventData,
+                        ctx: &mut dyn ::clm_plugin_api::core::PluginContext
+                    ) -> ::clm_plugin_api::core::EventResult {
+                        (&mut *(ptr as *mut #type_name)).#method_name(data, ctx)
+                    }
+                    __raw_event_handler
+                };
+            });
+        }
+        // ServiceHandler
+        else if receiver.mutability.is_none() && sig.inputs.len() == 2 {
+            handler_consts.push(quote! {
+                const #const_name: ::clm_plugin_api::core::RawServiceHandler = {
+                    unsafe fn __raw_service_handler(
+                        ptr: *const (),
+                        args: &[::clm_plugin_api::core::Value],
+                    ) -> ::clm_plugin_api::core::Value {
+                        (&*(ptr as *const #type_name)).#method_name(args)
+                    }
+                    __raw_service_handler
+                };
+            });
+        }
     }
 
     for constant in handler_consts {

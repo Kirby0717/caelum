@@ -54,12 +54,42 @@ use std::collections::HashMap;
 
 use crate::editor::PluginContext;
 use crate::event::data::EventData;
+use crate::registry::{
+    RawServiceHandler, Service, register_service, subscribe,
+};
 use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventKind(pub String);
+pub struct PluginRegistrar {
+    pub(crate) plugin_id: PluginId,
+}
+impl PluginRegistrar {
+    pub fn subscribe(
+        &self,
+        kind: &str,
+        properties: HashMap<PropertyKey, Value>,
+        handler: RawEventHandler,
+    ) -> SubscriptionId {
+        subscribe(Subscription {
+            plugin_id: self.plugin_id,
+            kind: EventKind(kind.to_string()),
+            properties,
+            handler,
+        })
+    }
+    pub fn register_service(&self, name: &str, handler: RawServiceHandler) {
+        register_service(
+            name,
+            Service {
+                plugin_id: self.plugin_id,
+                handler,
+            },
+        );
+    }
+}
 pub trait Plugin {
-    fn init(&mut self, plugin_id: PluginId);
+    fn init(&mut self, reg: PluginRegistrar);
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SortKey(pub String);
@@ -86,7 +116,7 @@ pub struct PluginId(pub usize);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PropertyKey(pub String);
 
-pub type RawHandler =
+pub type RawEventHandler =
     unsafe fn(*mut (), &EventData, &mut dyn PluginContext) -> EventResult;
 // 購読
 pub struct Subscription {
@@ -94,11 +124,9 @@ pub struct Subscription {
     pub kind: EventKind,
     // 購読性質
     pub properties: HashMap<PropertyKey, Value>,
-    pub handler: RawHandler,
+    pub handler: RawEventHandler,
 }
 
-pub type EventHandler =
-    Box<dyn Fn(&Event, &mut dyn PluginContext) -> EventResult>;
 pub enum EventResult {
     Handled,
     Propagate,

@@ -132,15 +132,14 @@ impl MotionPlugin {
     }
 }
 impl Plugin for MotionPlugin {
-    fn init(&mut self, plugin_id: PluginId) {
-        subscribe(Subscription {
-            plugin_id,
-            kind: EventKind("key_input".to_string()),
-            properties: HashMap::from([(
+    fn init(&mut self, reg: PluginRegistrar) {
+        reg.subscribe(
+            "key_input",
+            HashMap::from([(
                 PropertyKey("priority".to_string()),
                 Value::Int(500),
             )]),
-            handler: Self::KEY_INPUT,
-        });
+            Self::KEY_INPUT,
+        );
     }
 }
