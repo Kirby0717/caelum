@@ -108,19 +108,19 @@ impl MotionPlugin {
                 Mode::Command => match &key.logical_key {
                     LogicalKey::Character(c) => {
                         for c in c.chars() {
-                            ctx.command_add_char(c);
+                            emit_command_line(CommandLineAction::AddChar(c));
                         }
                     }
                     LogicalKey::Named(named) => match named {
                         NamedKey::Enter => {
-                            ctx.command_execute();
+                            emit_command_line(CommandLineAction::Execute);
                         }
                         NamedKey::Escape => {
-                            ctx.command_clear();
+                            emit_command_line(CommandLineAction::Clear);
                             emit_set_mode(Mode::Normal);
                         }
                         NamedKey::Backspace => {
-                            ctx.command_backspace();
+                            emit_command_line(CommandLineAction::Backspace);
                         }
                         _ => return EventResult::Propagate,
                     },
@@ -174,6 +174,18 @@ fn emit_edit(edit: EditAction) {
         Event {
             kind: EventKind("edit".to_string()),
             data: EventData::Edit(edit),
+        },
+        DispatchDescriptor {
+            consumable: true,
+            sort_keys: vec![SortKey("priority".to_string())],
+        },
+    );
+}
+fn emit_command_line(cmd_action: CommandLineAction) {
+    emit_event(
+        Event {
+            kind: EventKind("command_line".to_string()),
+            data: EventData::CommandLine(cmd_action),
         },
         DispatchDescriptor {
             consumable: true,

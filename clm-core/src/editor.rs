@@ -3,9 +3,6 @@ use std::path::Path;
 use std::rc::Rc;
 
 use crate::buffer::{Buffer, BufferId};
-use crate::event::EventKind;
-use crate::event::data::EventData;
-use crate::registry::{emit_event, execute_command};
 use crate::value::Value;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -84,21 +81,18 @@ pub struct EditorState {
     // まずは1つのバッファー
     pub buffer: Buffer,
     pub running: bool,
-    pub command_line: String,
 }
 impl EditorState {
     pub fn new() -> Self {
         Self {
             buffer: Buffer::new(BufferId(0)),
             running: true,
-            command_line: String::new(),
         }
     }
     pub fn from_file<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
         Ok(Self {
             buffer: Buffer::from_file(BufferId(0), path)?,
             running: true,
-            command_line: String::new(),
         })
     }
 }
@@ -137,29 +131,6 @@ impl PluginContext for EditorState {
     fn buffer_remove(&mut self, char_range: (usize, usize)) {
         self.buffer.rope_mut().remove(char_range.0..char_range.1);
     }
-    fn command_add_char(&mut self, ch: char) {
-        self.command_line.push(ch);
-    }
-    fn command_clear(&mut self) {
-        self.command_line.clear();
-    }
-    fn command_backspace(&mut self) {
-        self.command_line.pop();
-    }
-    fn command_execute(&mut self) {
-        execute_command(&self.command_line, &[]);
-        self.command_line.clear();
-        emit_event(
-            crate::event::Event {
-                kind: EventKind("set_mode".to_string()),
-                data: EventData::Mode(Mode::Normal),
-            },
-            crate::event::DispatchDescriptor {
-                consumable: true,
-                sort_keys: vec![crate::event::SortKey("priority".to_string())],
-            },
-        );
-    }
     fn quit(&mut self) {
         self.running = false;
     }
@@ -177,15 +148,6 @@ pub trait PluginContext {
     fn buffer_insert_char(&mut self, char_idx: usize, ch: char);
     fn buffer_insert(&mut self, char_idx: usize, text: &str);
     fn buffer_remove(&mut self, char_range: (usize, usize));
-    /*
-    fn buffer_insert_char_at_cursor(&mut self, ch: char);
-    fn buffer_backspace(&mut self);
-    */
-    // コマンド
-    fn command_add_char(&mut self, ch: char);
-    fn command_clear(&mut self);
-    fn command_backspace(&mut self);
-    fn command_execute(&mut self);
     // 制御
     fn quit(&mut self);
 }

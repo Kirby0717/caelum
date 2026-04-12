@@ -8,12 +8,19 @@ use clm_plugin_api::core::*;
 pub struct ModalPlugin {
     mode: Rc<RefCell<Mode>>,
     cursor: Rc<RefCell<CursorState>>,
+    command_line: Rc<RefCell<String>>,
+    // TODO: コマンドの途中経過も管理する
 }
 impl ModalPlugin {
     pub fn new() -> Self {
         let mode = Rc::new(RefCell::new(Mode::Normal));
         let cursor = Rc::new(RefCell::new(CursorState::default()));
-        Self { mode, cursor }
+        let command_line = Rc::new(RefCell::new(String::new()));
+        Self {
+            mode,
+            cursor,
+            command_line,
+        }
     }
 
     pub fn clamp_cursor(&mut self, ctx: &mut dyn PluginContext) {
@@ -150,7 +157,34 @@ impl ModalPlugin {
                 ctx.buffer_remove(*range);
             }
         }
-
+        EventResult::Handled
+    }
+    fn command_line(
+        &mut self,
+        data: &EventData,
+        _ctx: &mut dyn PluginContext,
+    ) -> EventResult {
+        let EventData::CommandLine(cmd_action) = data
+        else {
+            return EventResult::Propagate;
+        };
+        let mut command_line = self.command_line.borrow_mut();
+        match cmd_action {
+            CommandLineAction::AddChar(c) => {
+                command_line.push(*c);
+            }
+            CommandLineAction::Backspace => {
+                command_line.pop();
+            }
+            CommandLineAction::Execute => {
+                execute_command(&command_line, &[]);
+                command_line.clear();
+                *self.mode.borrow_mut() = Mode::Normal;
+            }
+            CommandLineAction::Clear => {
+                command_line.clear();
+            }
+        }
         EventResult::Handled
     }
 }
@@ -204,6 +238,15 @@ impl Plugin for ModalPlugin {
             )]),
             handler: Self::BUFFER,
         });
+        subscribe(Subscription {
+            plugin_id,
+            kind: EventKind("command_line".to_string()),
+            properties: HashMap::from([(
+                PropertyKey("priority".to_string()),
+                Value::Int(500),
+            )]),
+            handler: Self::COMMAND_LINE,
+        });
         register_command(
             "q",
             Box::new(|_| {
@@ -229,6 +272,11 @@ impl Plugin for ModalPlugin {
             register_service(
                 "modal.cursor",
                 Box::new(move |_| (*cursor.borrow()).into()),
+            );
+            let command_line = self.command_line.clone();
+            register_service(
+                "modal.command_line",
+                Box::new(move |_| Value::Str(command_line.borrow().clone())),
             );
         }
     }

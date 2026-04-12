@@ -90,6 +90,16 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     let cursor: CursorState = query_service("modal.cursor", &[])
         .and_then(|cursor| cursor.try_into().ok())
         .unwrap_or_default();
+    let command_line = query_service("modal.command_line", &[])
+        .and_then(|command_line| {
+            if let Value::Str(command_line) = command_line {
+                Some(command_line)
+            }
+            else {
+                None
+            }
+        })
+        .unwrap_or_default();
     // バッファーの表示
     for row in 0..size.1 - 1 {
         if let Some(line) = state.buffer.rope().get_line(row as usize) {
@@ -108,11 +118,9 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     match mode {
         Mode::Normal => execute!(stdout(), Print("-- NORMAL --"))?,
         Mode::Insert => execute!(stdout(), Print("-- INSERT --"))?,
-        Mode::Command => execute!(
-            stdout(),
-            Print("-- COMMAND -- :"),
-            Print(&state.command_line)
-        )?,
+        Mode::Command => {
+            execute!(stdout(), Print("-- COMMAND -- :"), Print(&command_line))?
+        }
     }
     // カーソルの設定
     match mode {
@@ -147,8 +155,7 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
             )?;
         }
         Mode::Command => {
-            let x = state
-                .command_line
+            let x = command_line
                 .chars()
                 .map(|c| c.width().unwrap_or(0))
                 .sum::<usize>()
