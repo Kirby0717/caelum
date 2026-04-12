@@ -121,7 +121,6 @@ impl ModalPlugin {
                     return EventResult::Handled;
                 }
                 let char_idx = char_idx - 1;
-                ctx.buffer_remove((char_idx, char_idx + 1));
                 if cursor.col == 0 {
                     cursor.row = cursor.row.saturating_sub(1);
                     cursor.col = ctx.buffer_line_len_chars(cursor.row);
@@ -129,6 +128,7 @@ impl ModalPlugin {
                 else {
                     cursor.col -= 1;
                 }
+                ctx.buffer_remove((char_idx, char_idx + 1));
             }
             EditAction::NewLine => {
                 let char_idx = ctx.buffer_line_to_char(cursor.row) + cursor.col;
