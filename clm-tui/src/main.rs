@@ -1,17 +1,17 @@
-mod modal;
-
-use std::any::Any;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::io::stdout;
 use std::rc::Rc;
 
-use clm_core::editor::{EditorState, SharedState};
+use clm_core::editor::{CursorState, EditorState, Mode, SharedState};
 use clm_core::event::{
-    DispatchDescriptor, Event as ClmEvent, EventBus, EventKind, PropertyKey,
-    Resolver, SortKey, Subscription, SubscriptionProperty,
+    DispatchDescriptor, Event as ClmEvent, EventKind, PropertyKey, SortKey,
 };
-use clm_core::mode::Mode;
+use clm_core::registry::{
+    Resolver, add_plugin, dispatch_next, emit_event, query_service,
+    register_resolver,
+};
+use clm_core::value::Value;
+use clm_plugin_api::core::EventData;
 use crossterm::cursor::{MoveTo, SetCursorStyle};
 use crossterm::execute;
 use crossterm::style::Print;
@@ -24,31 +24,24 @@ use unicode_width::UnicodeWidthChar;
 fn main() -> anyhow::Result<()> {
     let file = "./Cargo.toml";
     let state = Rc::new(RefCell::new(EditorState::from_file(file)?));
-    let mut bus = EventBus::new();
 
-    bus.subscribe(Subscription {
-        plugin_id: clm_core::event::PluginId(0),
-        kind: EventKind("key_input".to_string()),
-        properties: HashMap::from([(
-            PropertyKey("priority".to_string()),
-            Box::new(100) as SubscriptionProperty,
-        )]),
-        handler: Box::new(modal::ModalPlugin::new()),
-    });
-    bus.register_resolver(
+    register_resolver(
         SortKey("priority".to_string()),
         PropertyKey("priority".to_string()),
-        Box::new(|priority: Option<&Box<dyn Any + 'static>>| {
-            let Some(priority) = priority
+        Box::new(|priority: Option<&Value>| {
+            let Some(Value::Int(priority)) = priority
             else {
-                return i32::MIN;
+                return i64::MIN;
             };
-            priority.downcast_ref::<i32>().copied().unwrap_or(i32::MIN)
+            *priority
         }) as Resolver,
     );
 
+    add_plugin(clm_modal::ModalPlugin::new());
+    add_plugin(clm_motions::MotionPlugin::new());
+
     enable_raw_mode()?;
-    execute!(stdout(), EnterAlternateScreen, MoveTo(0, 0))?;
+    execute!(stdout(), EnterAlternateScreen)?;
 
     let mut size = crossterm::terminal::size()?;
 
@@ -56,10 +49,10 @@ fn main() -> anyhow::Result<()> {
         use crossterm::event::{Event, read};
         match read()? {
             Event::Key(key_event) => {
-                bus.emit(
+                emit_event(
                     ClmEvent {
                         kind: EventKind("key_input".to_string()),
-                        payload: Box::new(key_event),
+                        data: EventData::Key(convert_key_event(key_event)),
                     },
                     DispatchDescriptor {
                         consumable: true,
@@ -73,11 +66,7 @@ fn main() -> anyhow::Result<()> {
             _ => {}
         }
 
-        while bus.dispatch_next(&mut *state.borrow_mut()) {
-            for (event, desc) in clm_core::event::drain_pending_events() {
-                bus.emit(event, desc);
-            }
-        }
+        while dispatch_next(&mut *state.borrow_mut()) {}
 
         render(state.clone(), size)?;
 
@@ -95,6 +84,22 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     use crossterm::terminal::{Clear, ClearType};
     execute!(stdout(), Clear(ClearType::All))?;
     let state = state.borrow();
+    let mode = query_service("modal.mode", &[])
+        .and_then(|mode| mode.try_into().ok())
+        .unwrap_or(Mode::Normal);
+    let cursor: CursorState = query_service("modal.cursor", &[])
+        .and_then(|cursor| cursor.try_into().ok())
+        .unwrap_or_default();
+    let command_line = query_service("modal.command_line", &[])
+        .and_then(|command_line| {
+            if let Value::Str(command_line) = command_line {
+                Some(command_line)
+            }
+            else {
+                None
+            }
+        })
+        .unwrap_or_default();
     // バッファーの表示
     for row in 0..size.1 - 1 {
         if let Some(line) = state.buffer.rope().get_line(row as usize) {
@@ -110,19 +115,16 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     }
     // ステータスラインの設定
     execute!(stdout(), MoveTo(0, size.1 - 1))?;
-    match state.mode {
+    match mode {
         Mode::Normal => execute!(stdout(), Print("-- NORMAL --"))?,
         Mode::Insert => execute!(stdout(), Print("-- INSERT --"))?,
-        Mode::Command => execute!(
-            stdout(),
-            Print("-- COMMAND -- :"),
-            Print(&state.command_line)
-        )?,
+        Mode::Command => {
+            execute!(stdout(), Print("-- COMMAND -- :"), Print(&command_line))?
+        }
     }
     // カーソルの設定
-    match state.mode {
+    match mode {
         Mode::Normal => {
-            let cursor = state.cursor;
             let x = state
                 .buffer
                 .rope()
@@ -138,7 +140,6 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
             )?;
         }
         Mode::Insert => {
-            let cursor = state.cursor;
             let x = state
                 .buffer
                 .rope()
@@ -154,8 +155,7 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
             )?;
         }
         Mode::Command => {
-            let x = state
-                .command_line
+            let x = command_line
                 .chars()
                 .map(|c| c.width().unwrap_or(0))
                 .sum::<usize>()
@@ -181,4 +181,70 @@ fn truncate_to_width(line: &str, max_width: usize) -> &str {
         width += w;
     }
     line
+}
+
+fn convert_key_event(
+    key_event: crossterm::event::KeyEvent,
+) -> clm_plugin_api::input::KeyEvent {
+    use clm_plugin_api::input::*;
+    use crossterm::event::{
+        KeyCode as TuiKeyCode, KeyEventKind as TuiKeyState,
+        KeyModifiers as TuiModifiers,
+    };
+    KeyEvent {
+        physical_key: PhysicalKey::Unknown,
+        logical_key: match key_event.code {
+            TuiKeyCode::Backspace => LogicalKey::Named(NamedKey::Backspace),
+            TuiKeyCode::Enter => LogicalKey::Named(NamedKey::Enter),
+            TuiKeyCode::Left => LogicalKey::Named(NamedKey::ArrowLeft),
+            TuiKeyCode::Right => LogicalKey::Named(NamedKey::ArrowRight),
+            TuiKeyCode::Up => LogicalKey::Named(NamedKey::ArrowUp),
+            TuiKeyCode::Down => LogicalKey::Named(NamedKey::ArrowDown),
+            TuiKeyCode::Home => LogicalKey::Named(NamedKey::Home),
+            TuiKeyCode::End => LogicalKey::Named(NamedKey::End),
+            TuiKeyCode::PageUp => LogicalKey::Named(NamedKey::PageUp),
+            TuiKeyCode::PageDown => LogicalKey::Named(NamedKey::PageDown),
+            TuiKeyCode::Tab => LogicalKey::Named(NamedKey::Tab),
+            TuiKeyCode::BackTab => LogicalKey::Named(NamedKey::BackTab),
+            TuiKeyCode::Delete => LogicalKey::Named(NamedKey::Delete),
+            TuiKeyCode::Insert => LogicalKey::Named(NamedKey::Insert),
+            TuiKeyCode::F(n) => match n {
+                1 => LogicalKey::Named(NamedKey::F1),
+                2 => LogicalKey::Named(NamedKey::F2),
+                3 => LogicalKey::Named(NamedKey::F3),
+                4 => LogicalKey::Named(NamedKey::F4),
+                5 => LogicalKey::Named(NamedKey::F5),
+                6 => LogicalKey::Named(NamedKey::F6),
+                7 => LogicalKey::Named(NamedKey::F7),
+                8 => LogicalKey::Named(NamedKey::F8),
+                9 => LogicalKey::Named(NamedKey::F9),
+                10 => LogicalKey::Named(NamedKey::F10),
+                11 => LogicalKey::Named(NamedKey::F11),
+                12 => LogicalKey::Named(NamedKey::F12),
+                _ => LogicalKey::Unknown,
+            },
+            TuiKeyCode::Char(c) => LogicalKey::Character(c.to_string()),
+            TuiKeyCode::Null => LogicalKey::Unknown,
+            TuiKeyCode::Esc => LogicalKey::Named(NamedKey::Escape),
+            TuiKeyCode::CapsLock => LogicalKey::Named(NamedKey::CapsLock),
+            TuiKeyCode::ScrollLock => LogicalKey::Named(NamedKey::ScrollLock),
+            TuiKeyCode::NumLock => LogicalKey::Named(NamedKey::NumLock),
+            TuiKeyCode::PrintScreen => LogicalKey::Named(NamedKey::PrintScreen),
+            _ => LogicalKey::Unknown,
+        },
+        text: None,
+        modifiers: Modifiers {
+            shift: key_event.modifiers.contains(TuiModifiers::SHIFT),
+            ctrl: key_event.modifiers.contains(TuiModifiers::CONTROL),
+            alt: key_event.modifiers.contains(TuiModifiers::ALT),
+            super_key: key_event.modifiers.contains(TuiModifiers::SUPER),
+        },
+        location: KeyLocation::Standard,
+        state: match key_event.kind {
+            TuiKeyState::Press => ElementState::Pressed,
+            TuiKeyState::Release => ElementState::Released,
+            TuiKeyState::Repeat => ElementState::Pressed,
+        },
+        repeat: matches!(key_event.kind, TuiKeyState::Release),
+    }
 }

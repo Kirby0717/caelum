@@ -1,5 +1,5 @@
 [package]
-name = "clm-plugin-api"
+name = "clm-modal"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,5 +8,4 @@ description.workspace = true
 repository.workspace = true
 
 [dependencies]
-clm-core = { path = "../clm-core" }
-clm-macros = { path = "../clm-macros" }
+clm-plugin-api = { path = "../../clm-plugin-api" }

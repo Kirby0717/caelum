@@ -1,5 +1,5 @@
 [package]
-name = "clm-plugin-api"
+name = "clm-macros"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,6 +7,10 @@ authors.workspace = true
 description.workspace = true
 repository.workspace = true
 
+[lib]
+proc-macro = true
+
 [dependencies]
-clm-core = { path = "../clm-core" }
-clm-macros = { path = "../clm-macros" }
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"

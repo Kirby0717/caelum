@@ -48,24 +48,30 @@ HashMap<配信性質, Box<dyn Fn(Option<購読性質>) -> i32>>
 
 */
 
-use std::any::Any;
-use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+pub mod data;
 
-use crate::plugin::PluginContext;
+use std::collections::HashMap;
+
+use crate::editor::PluginContext;
+use crate::event::data::EventData;
+use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventKind(pub String);
-pub type EventPayload = Box<dyn Any>;
+pub trait Plugin {
+    fn init(&mut self, plugin_id: PluginId);
+}
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SortKey(pub String);
 
 // イベント
+#[derive(Clone)]
 pub struct Event {
     pub kind: EventKind,
-    pub payload: EventPayload,
+    pub data: EventData,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchDescriptor {
     // 配信方法 true: 消費型 false: ブロードキャスト型
     pub consumable: bool,
@@ -79,132 +85,21 @@ pub struct SubscriptionId(pub usize);
 pub struct PluginId(pub usize);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PropertyKey(pub String);
-pub type SubscriptionProperty = Box<dyn Any>;
 
+pub type RawHandler =
+    unsafe fn(*mut (), &EventData, &mut dyn PluginContext) -> EventResult;
 // 購読
 pub struct Subscription {
     pub plugin_id: PluginId,
     pub kind: EventKind,
     // 購読性質
-    pub properties: HashMap<PropertyKey, SubscriptionProperty>,
-
-    pub handler: Box<dyn EventHandler>,
+    pub properties: HashMap<PropertyKey, Value>,
+    pub handler: RawHandler,
 }
 
-pub trait EventHandler {
-    fn handle(
-        &mut self,
-        event: &Event,
-        ctx: &mut dyn PluginContext,
-    ) -> EventResult;
-}
+pub type EventHandler =
+    Box<dyn Fn(&Event, &mut dyn PluginContext) -> EventResult>;
 pub enum EventResult {
     Handled,
     Propagate,
-}
-
-pub type Resolver = Box<dyn Fn(Option<&SubscriptionProperty>) -> i32>;
-#[derive(Default)]
-pub struct EventBus {
-    queue: VecDeque<(Event, DispatchDescriptor)>,
-    subscriptions: HashMap<SubscriptionId, Subscription>,
-    next_subscription_id: usize,
-    resolvers: HashMap<SortKey, (PropertyKey, Resolver)>,
-}
-
-impl EventBus {
-    pub fn new() -> Self {
-        Self::default()
-    }
-    // 配信の予約
-    pub fn emit(&mut self, event: Event, descriptor: DispatchDescriptor) {
-        self.queue.push_back((event, descriptor));
-    }
-    // 購読登録
-    pub fn subscribe(&mut self, subscription: Subscription) -> SubscriptionId {
-        let id = SubscriptionId(self.next_subscription_id);
-        self.next_subscription_id += 1;
-        self.subscriptions.insert(id, subscription);
-        id
-    }
-    // 購読解除
-    pub fn unsubscribe(&mut self, id: SubscriptionId) {
-        self.subscriptions.remove(&id);
-    }
-    // 変換関数の登録
-    pub fn register_resolver(
-        &mut self,
-        sort_key: SortKey,
-        property_key: PropertyKey,
-        resolver: Resolver,
-    ) {
-        self.resolvers.insert(sort_key, (property_key, resolver));
-    }
-    // 配信
-    pub fn dispatch_next(&mut self, ctx: &mut dyn PluginContext) -> bool {
-        let Some((event, descriptor)) = self.queue.pop_front()
-        else {
-            return false;
-        };
-        // 消費型
-        if descriptor.consumable {
-            // 変換関数の解決
-            let resolvers = descriptor
-                .sort_keys
-                .iter()
-                // TODO: 警告ログ
-                .filter_map(|key| self.resolvers.get(key))
-                .collect::<Vec<_>>();
-            // 購読者のフィルターと優先順位の計算
-            let mut subscriptions = self
-                .subscriptions
-                .values_mut()
-                .filter(|subscription| subscription.kind == event.kind)
-                .map(|subscription| {
-                    let key = resolvers
-                        .iter()
-                        .map(|(key, resolver)| {
-                            resolver(subscription.properties.get(key))
-                        })
-                        .collect::<Vec<_>>();
-                    (key, subscription)
-                })
-                .collect::<Vec<_>>();
-            // 降順ソート
-            subscriptions.sort_by_cached_key(|(key, _)| {
-                key.iter()
-                    .map(|k| std::cmp::Reverse(*k))
-                    .collect::<Vec<_>>()
-            });
-            // 順番に配信する
-            for (_, subscription) in subscriptions {
-                if matches!(
-                    subscription.handler.handle(&event, ctx),
-                    EventResult::Handled
-                ) {
-                    break;
-                }
-            }
-        }
-        // ブロードキャスト型
-        else {
-            for subscription in self.subscriptions.values_mut() {
-                if subscription.kind != event.kind {
-                    continue;
-                }
-                let _ = subscription.handler.handle(&event, ctx);
-            }
-        }
-        true
-    }
-}
-
-thread_local! {
-    static PENDING_EVENTS: RefCell<Vec<(Event, DispatchDescriptor)>> = RefCell::new(Vec::new());
-}
-pub fn emit_event(event: Event, descriptor: DispatchDescriptor) {
-    PENDING_EVENTS.with(|q| q.borrow_mut().push((event, descriptor)));
-}
-pub fn drain_pending_events() -> Vec<(Event, DispatchDescriptor)> {
-    PENDING_EVENTS.with(|q| std::mem::take(&mut *q.borrow_mut()))
 }

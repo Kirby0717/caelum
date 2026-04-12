@@ -1,5 +1,14 @@
 [workspace]
-members = ["clm-core", "clm-plugin-api", "clm-renderer", "clm-tui"]
+members = [
+  "clm-core",
+  "clm-macros",
+  "clm-plugin-api",
+  "clm-renderer",
+  "clm-tui",
+  "plugins/clm-editing",
+  "plugins/clm-modal",
+  "plugins/clm-motions",
+]
 resolver = "3"
 
 [workspace.package]
