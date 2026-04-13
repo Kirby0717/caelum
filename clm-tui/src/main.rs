@@ -22,7 +22,8 @@ use crossterm::terminal::{
 use unicode_width::UnicodeWidthChar;
 
 fn main() -> anyhow::Result<()> {
-    let file = "./Cargo.toml";
+    //let file = "E:/Word/言語学Aポスター/data/all8.txt";
+    let file = "./deny.toml";
     let state = Rc::new(RefCell::new(EditorState::from_file(file)?));
 
     register_resolver(
@@ -44,6 +45,7 @@ fn main() -> anyhow::Result<()> {
     execute!(stdout(), EnterAlternateScreen)?;
 
     let mut size = crossterm::terminal::size()?;
+    let mut view_offset = (0, 0);
 
     loop {
         use crossterm::event::{Event, read};
@@ -68,7 +70,7 @@ fn main() -> anyhow::Result<()> {
 
         while dispatch_next(&mut *state.borrow_mut()) {}
 
-        render(state.clone(), size)?;
+        render(state.clone(), size, &mut view_offset)?;
 
         if !state.borrow().running {
             break;
@@ -80,7 +82,11 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
+fn render(
+    state: SharedState,
+    size: (u16, u16),
+    view_offset: &mut (usize, usize),
+) -> anyhow::Result<()> {
     use crossterm::terminal::{Clear, ClearType};
     execute!(stdout(), Clear(ClearType::All))?;
     let state = state.borrow();
@@ -90,6 +96,21 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     let cursor: CursorState = query_service("modal.cursor", &[])
         .and_then(|cursor| cursor.try_into().ok())
         .unwrap_or_default();
+    let view_size = (size.0, size.1 - 1);
+
+    if cursor.row < view_offset.1 {
+        view_offset.1 = cursor.row;
+    }
+    if view_offset.1 + view_size.1 as usize - 1 <= cursor.row {
+        view_offset.1 = cursor.row - (view_size.1 as usize - 1);
+    }
+    if cursor.col < view_offset.0 {
+        view_offset.0 = cursor.col;
+    }
+    if view_offset.0 + view_size.0 as usize - 1 <= cursor.col {
+        view_offset.0 = cursor.col - (view_size.0 as usize - 1);
+    }
+
     let command_line = query_service("modal.command_line", &[])
         .and_then(|command_line| {
             if let Value::Str(command_line) = command_line {
@@ -100,21 +121,29 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
             }
         })
         .unwrap_or_default();
+
     // バッファーの表示
-    for row in 0..size.1 - 1 {
-        if let Some(line) = state.buffer.rope().get_line(row as usize) {
+    for row in 0..view_size.1 {
+        if let Some(line) =
+            state.buffer.rope().get_line(view_offset.1 + row as usize)
+        {
+            let line = line.chars().collect::<String>();
             execute!(
                 stdout(),
                 MoveTo(0, row),
-                Print(truncate_to_width(
-                    &line.chars().collect::<String>(),
-                    size.0 as usize
+                Print(trim_display_range(
+                    &line,
+                    view_offset.0,
+                    view_size.0 as usize
                 ))
             )?;
         }
+        else {
+            break;
+        }
     }
     // ステータスラインの設定
-    execute!(stdout(), MoveTo(0, size.1 - 1))?;
+    execute!(stdout(), MoveTo(0, size.1 - 1),)?;
     match mode {
         Mode::Normal => execute!(stdout(), Print("-- NORMAL --"))?,
         Mode::Insert => execute!(stdout(), Print("-- INSERT --"))?,
@@ -124,7 +153,7 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     }
     // カーソルの設定
     match mode {
-        Mode::Normal => {
+        Mode::Normal | Mode::Insert => {
             let x = state
                 .buffer
                 .rope()
@@ -132,27 +161,21 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
                 .chars()
                 .take(cursor.col)
                 .map(|c| c.width().unwrap_or(0) as u16)
-                .sum();
+                .sum::<u16>();
             execute!(
                 stdout(),
-                MoveTo(x, cursor.row as u16),
-                SetCursorStyle::SteadyBlock
+                MoveTo(
+                    x - view_offset.0 as u16,
+                    (cursor.row - view_offset.1) as u16
+                ),
             )?;
-        }
-        Mode::Insert => {
-            let x = state
-                .buffer
-                .rope()
-                .line(cursor.row)
-                .chars()
-                .take(cursor.col)
-                .map(|c| c.width().unwrap_or(0) as u16)
-                .sum();
-            execute!(
-                stdout(),
-                MoveTo(x, cursor.row as u16),
-                SetCursorStyle::SteadyBar
-            )?;
+            match mode {
+                Mode::Normal => {
+                    execute!(stdout(), SetCursorStyle::SteadyBlock)?
+                }
+                Mode::Insert => execute!(stdout(), SetCursorStyle::SteadyBar)?,
+                _ => unreachable!(),
+            }
         }
         Mode::Command => {
             let x = command_line
@@ -170,17 +193,33 @@ fn render(state: SharedState, size: (u16, u16)) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn truncate_to_width(line: &str, max_width: usize) -> &str {
+fn trim_display_range(line: &str, offset: usize, max_width: usize) -> String {
     use unicode_width::UnicodeWidthChar;
     let mut width = 0;
-    for (i, c) in line.char_indices() {
+    let mut result = String::new();
+    for c in line.chars() {
+        let l = width;
         let w = c.width().unwrap_or(0);
-        if width + w > max_width {
-            return &line[..i];
-        }
+        let r = l + w;
         width += w;
+        if r <= offset {
+            continue;
+        }
+        if offset + max_width <= l {
+            break;
+        }
+        if l < offset || offset + max_width < r {
+            for i in l..r {
+                if offset <= i && i < offset + max_width {
+                    result.push(' ');
+                }
+            }
+        }
+        else {
+            result.push(c);
+        }
     }
-    line
+    result
 }
 
 fn convert_key_event(

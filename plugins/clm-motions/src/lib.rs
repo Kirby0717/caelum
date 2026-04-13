@@ -15,7 +15,7 @@ impl MotionPlugin {
     fn key_input(
         &mut self,
         data: &EventData,
-        ctx: &mut dyn PluginContext,
+        _ctx: &mut dyn PluginContext,
     ) -> EventResult {
         let EventData::Key(key) = data
         else {
@@ -39,6 +39,18 @@ impl MotionPlugin {
                         }
                         "d" => {
                             emit_cursor_move(CursorMove::Right(1));
+                        }
+                        "W" => {
+                            emit_cursor_move(CursorMove::Up(5));
+                        }
+                        "A" => {
+                            emit_cursor_move(CursorMove::Left(5));
+                        }
+                        "S" => {
+                            emit_cursor_move(CursorMove::Down(5));
+                        }
+                        "D" => {
+                            emit_cursor_move(CursorMove::Right(5));
                         }
                         "j" => {
                             emit_set_mode(Mode::Insert);
@@ -64,9 +76,6 @@ impl MotionPlugin {
                         }
                         NamedKey::ArrowRight => {
                             emit_cursor_move(CursorMove::Right(1));
-                        }
-                        NamedKey::Escape => {
-                            ctx.quit();
                         }
                         _ => return EventResult::Propagate,
                     },

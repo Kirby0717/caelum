@@ -7,7 +7,6 @@ pub struct ModalPlugin {
     mode: Mode,
     cursor: CursorState,
     command_line: String,
-    // TODO: コマンドの途中経過も管理する
 }
 impl ModalPlugin {
     pub fn new() -> Self {
