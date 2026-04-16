@@ -12,14 +12,20 @@ use crate::value::Value;
 pub type Resolver = Box<dyn Fn(Option<&Value>) -> i64>;
 pub type Command = Box<dyn Fn(&[String]) -> Vec<(Event, DispatchDescriptor)>>;
 pub type RawServiceHandler = unsafe fn(*const (), &[Value]) -> Value;
+pub type RawMutServiceHandler = unsafe fn(*mut (), &[Value]) -> Value;
+#[derive(Debug, Clone, Copy)]
+pub enum ServiceHandler {
+    Immutable(RawServiceHandler),
+    Mutable(RawMutServiceHandler),
+}
 #[derive(Debug, Clone, Copy)]
 pub struct Service {
     pub plugin_id: PluginId,
-    pub handler: RawServiceHandler,
+    pub handler: ServiceHandler,
 }
 
 thread_local! {
-    static PLUGINS: RefCell<Vec<Option<Box<dyn Plugin>>>> = const { RefCell::new(Vec::new()) };
+    static PLUGINS: RefCell<Vec<RefCell<Box<dyn Plugin>>>> = const { RefCell::new(Vec::new()) };
     static EVENT_QUEUE: RefCell<VecDeque<(Event, DispatchDescriptor)>> = const { RefCell::new(VecDeque::new()) };
     static SUBSCRIPTIONS: RefCell<Vec<Option<Subscription>>> = const { RefCell::new(Vec::new()) };
     static RESOLVERS: RefCell<HashMap<SortKey, (PropertyKey, Resolver)>> = RefCell::new(HashMap::new());
@@ -32,7 +38,9 @@ pub fn add_plugin(mut plugin: impl Plugin + 'static) -> PluginId {
     let id = PluginId(id);
     let reg = PluginRegistrar { plugin_id: id };
     plugin.init(reg);
-    PLUGINS.with_borrow_mut(|plugins| plugins.push(Some(Box::new(plugin))));
+    PLUGINS.with_borrow_mut(|plugins| {
+        plugins.push(RefCell::new(Box::new(plugin)))
+    });
     id
 }
 
@@ -103,27 +111,26 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
                 });
                 // 順番に配信する
                 for (_, (handler, id)) in subscriptions {
-                    // プラグインの取り出し
-                    let plugin = PLUGINS.with_borrow_mut(|plugins| {
-                        plugins.get_mut(id.0).and_then(|slot| slot.take())
-                    });
-                    if let Some(mut plugin) = plugin {
-                        // イベントハンドラーの実行
-                        let result = call_event_handler(
-                            handler,
-                            plugin.as_mut(),
-                            &event.data,
-                            ctx,
-                        );
-                        // プラグインを戻す
-                        PLUGINS.with_borrow_mut(|plugins| {
-                            plugins[id.0] = Some(plugin)
-                        });
-                        // 結果に応じて終了
-                        match result {
-                            EventResult::Propagate => continue,
-                            EventResult::Handled => break,
+                    let result = PLUGINS.with_borrow(|plugins| {
+                        let plugin = plugins
+                            .get(id.0)
+                            .and_then(|plugin| plugin.try_borrow_mut().ok());
+                        if let Some(mut plugin) = plugin {
+                            // イベントハンドラーの実行
+                            call_event_handler(
+                                handler,
+                                plugin.as_mut(),
+                                &event.data,
+                                ctx,
+                            )
                         }
+                        else {
+                            EventResult::Propagate
+                        }
+                    });
+                    match result {
+                        EventResult::Propagate => continue,
+                        EventResult::Handled => break,
                     }
                 }
             });
@@ -138,22 +145,20 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
                 }
                 let id = subscription.plugin_id;
                 // プラグインの取り出し
-                let plugin = PLUGINS.with_borrow_mut(|plugins| {
-                    plugins.get_mut(id.0).and_then(|slot| slot.take())
+                PLUGINS.with_borrow_mut(|plugins| {
+                    let plugin = plugins
+                        .get_mut(id.0)
+                        .and_then(|plugin| plugin.try_borrow_mut().ok());
+                    if let Some(mut plugin) = plugin {
+                        // イベントハンドラーの実行
+                        call_event_handler(
+                            subscription.handler,
+                            plugin.as_mut(),
+                            &event.data,
+                            ctx,
+                        );
+                    }
                 });
-                if let Some(mut plugin) = plugin {
-                    // イベントハンドラーの実行
-                    call_event_handler(
-                        subscription.handler,
-                        plugin.as_mut(),
-                        &event.data,
-                        ctx,
-                    );
-                    // プラグインを戻す
-                    PLUGINS.with_borrow_mut(|plugins| {
-                        plugins[id.0] = Some(plugin)
-                    });
-                }
             }
         })
     }
@@ -193,8 +198,17 @@ pub fn query_service(name: &str, args: &[Value]) -> Option<Value> {
     let service =
         SERVICES.with_borrow(|services| services.get(name).copied())?;
     PLUGINS.with_borrow(|plugins| {
-        let plugin = plugins.get(service.plugin_id.0)?.as_ref()?;
-        Some(call_service_handler(service.handler, plugin.as_ref(), args))
+        let plugin = plugins.get(service.plugin_id.0)?;
+        match service.handler {
+            ServiceHandler::Immutable(handler) => {
+                let plugin = plugin.try_borrow().ok()?;
+                Some(call_service_handler(handler, plugin.as_ref(), args))
+            }
+            ServiceHandler::Mutable(handler) => {
+                let mut plugin = plugin.try_borrow_mut().ok()?;
+                Some(call_mut_service_handler(handler, plugin.as_mut(), args))
+            }
+        }
     })
 }
 fn call_service_handler(
@@ -203,4 +217,11 @@ fn call_service_handler(
     args: &[Value],
 ) -> Value {
     unsafe { handler(plugin as *const dyn Plugin as *const (), args) }
+}
+fn call_mut_service_handler(
+    handler: RawMutServiceHandler,
+    plugin: &mut dyn Plugin,
+    args: &[Value],
+) -> Value {
+    unsafe { handler(plugin as *mut dyn Plugin as *mut (), args) }
 }

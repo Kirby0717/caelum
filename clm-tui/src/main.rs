@@ -1,8 +1,6 @@
-use std::cell::RefCell;
 use std::io::stdout;
-use std::rc::Rc;
 
-use clm_core::editor::{CursorState, EditorState, Mode, SharedState};
+use clm_core::editor::{CursorState, EditorState, Mode};
 use clm_core::event::{
     DispatchDescriptor, Event as ClmEvent, EventKind, PropertyKey, SortKey,
 };
@@ -24,7 +22,7 @@ use unicode_width::UnicodeWidthChar;
 fn main() -> anyhow::Result<()> {
     //let file = "E:/Word/言語学Aポスター/data/all8.txt";
     let file = "./deny.toml";
-    let state = Rc::new(RefCell::new(EditorState::from_file(file)?));
+    let mut state = EditorState::new();
 
     register_resolver(
         SortKey("priority".to_string()),
@@ -38,7 +36,8 @@ fn main() -> anyhow::Result<()> {
         }) as Resolver,
     );
 
-    add_plugin(clm_modal::ModalPlugin::new());
+    add_plugin(clm_buffer::BufferPlugin::new());
+    add_plugin(clm_modal::ModalPlugin::new(Some(file)));
     add_plugin(clm_motions::MotionPlugin::new());
 
     enable_raw_mode()?;
@@ -68,11 +67,11 @@ fn main() -> anyhow::Result<()> {
             _ => {}
         }
 
-        while dispatch_next(&mut *state.borrow_mut()) {}
+        while dispatch_next(&mut state) {}
 
-        render(state.clone(), size, &mut view_offset)?;
+        render(size, &mut view_offset)?;
 
-        if !state.borrow().running {
+        if !state.running {
             break;
         }
     }
@@ -83,13 +82,11 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn render(
-    state: SharedState,
     size: (u16, u16),
     view_offset: &mut (usize, usize),
 ) -> anyhow::Result<()> {
     use crossterm::terminal::{Clear, ClearType};
     execute!(stdout(), Clear(ClearType::All))?;
-    let state = state.borrow();
     let mode = query_service("modal.mode", &[])
         .and_then(|mode| mode.try_into().ok())
         .unwrap_or(Mode::Normal);
@@ -97,20 +94,10 @@ fn render(
         .and_then(|cursor| cursor.try_into().ok())
         .unwrap_or_default();
     let view_size = (size.0, size.1 - 1);
-
-    if cursor.row < view_offset.1 {
-        view_offset.1 = cursor.row;
-    }
-    if view_offset.1 + view_size.1 as usize - 1 <= cursor.row {
-        view_offset.1 = cursor.row - (view_size.1 as usize - 1);
-    }
-    if cursor.col < view_offset.0 {
-        view_offset.0 = cursor.col;
-    }
-    if view_offset.0 + view_size.0 as usize - 1 <= cursor.col {
-        view_offset.0 = cursor.col - (view_size.0 as usize - 1);
-    }
-
+    let buffer_id: usize = query_service("modal.buffer_id", &[])
+        .unwrap()
+        .try_into()
+        .unwrap();
     let command_line = query_service("modal.command_line", &[])
         .and_then(|command_line| {
             if let Value::Str(command_line) = command_line {
@@ -122,19 +109,57 @@ fn render(
         })
         .unwrap_or_default();
 
+    // オフセットの計算
+    {
+        if cursor.row < view_offset.1 {
+            view_offset.1 = cursor.row;
+        }
+        if view_offset.1 + view_size.1 as usize <= cursor.row {
+            view_offset.1 = cursor.row - (view_size.1 as usize - 1);
+        }
+        let line: String = query_service(
+            "buffer.line",
+            &[buffer_id.into(), cursor.row.into()],
+        )
+        .unwrap()
+        .try_into()
+        .unwrap();
+        let display_col_l = line[..cursor.byte_col]
+            .chars()
+            .map(|c| c.width().unwrap_or(0))
+            .sum::<usize>();
+        let display_col_r = display_col_l
+            + line[cursor.byte_col..]
+                .chars()
+                .next()
+                .unwrap()
+                .width()
+                .unwrap_or(0);
+        if display_col_l < view_offset.0 {
+            view_offset.0 = display_col_l;
+        }
+        if view_offset.0 + (view_size.0 as usize) < display_col_r {
+            view_offset.0 = display_col_r - (view_size.0 as usize);
+        }
+    }
+
     // バッファーの表示
     for row in 0..view_size.1 {
-        if let Some(line) =
-            state.buffer.rope().get_line(view_offset.1 + row as usize)
-        {
-            let line = line.chars().collect::<String>();
+        let line: Option<String> = query_service(
+            "buffer.line",
+            &[buffer_id.into(), (view_offset.1 + row as usize).into()],
+        )
+        .unwrap()
+        .try_into()
+        .unwrap();
+        if let Some(line) = line {
             execute!(
                 stdout(),
                 MoveTo(0, row),
                 Print(trim_display_range(
                     &line,
                     view_offset.0,
-                    view_size.0 as usize
+                    view_offset.0 + view_size.0 as usize
                 ))
             )?;
         }
@@ -143,9 +168,9 @@ fn render(
         }
     }
     // ステータスラインの設定
-    execute!(stdout(), MoveTo(0, size.1 - 1),)?;
+    execute!(stdout(), MoveTo(0, size.1 - 1))?;
     match mode {
-        Mode::Normal => execute!(stdout(), Print("-- NORMAL --"))?,
+        Mode::Normal => execute!(stdout(), Print("-- NORMAL --"),)?,
         Mode::Insert => execute!(stdout(), Print("-- INSERT --"))?,
         Mode::Command => {
             execute!(stdout(), Print("-- COMMAND -- :"), Print(&command_line))?
@@ -154,12 +179,15 @@ fn render(
     // カーソルの設定
     match mode {
         Mode::Normal | Mode::Insert => {
-            let x = state
-                .buffer
-                .rope()
-                .line(cursor.row)
+            let line: String = query_service(
+                "buffer.line",
+                &[buffer_id.into(), cursor.row.into()],
+            )
+            .unwrap()
+            .try_into()
+            .unwrap();
+            let x = line[..cursor.byte_col]
                 .chars()
-                .take(cursor.col)
                 .map(|c| c.width().unwrap_or(0) as u16)
                 .sum::<u16>();
             execute!(
@@ -193,7 +221,7 @@ fn render(
     Ok(())
 }
 
-fn trim_display_range(line: &str, offset: usize, max_width: usize) -> String {
+fn trim_display_range(line: &str, range_l: usize, range_r: usize) -> String {
     use unicode_width::UnicodeWidthChar;
     let mut width = 0;
     let mut result = String::new();
@@ -202,21 +230,23 @@ fn trim_display_range(line: &str, offset: usize, max_width: usize) -> String {
         let w = c.width().unwrap_or(0);
         let r = l + w;
         width += w;
-        if r <= offset {
+        if r <= range_l {
             continue;
         }
-        if offset + max_width <= l {
+        if range_r <= l {
             break;
         }
-        if l < offset || offset + max_width < r {
+        if l < range_l || range_r < r {
             for i in l..r {
-                if offset <= i && i < offset + max_width {
+                if range_l <= i && i < range_r {
                     result.push(' ');
                 }
             }
         }
         else {
-            result.push(c);
+            if c != '\n' {
+                result.push(c);
+            }
         }
     }
     result

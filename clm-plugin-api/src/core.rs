@@ -1,14 +1,14 @@
 pub use clm_core::editor::{CursorState, Mode, PluginContext};
 pub use clm_core::event::data::{
-    BufferOp, CommandLineAction, CursorMove, EditAction, EventData,
+    BufferId, CommandLineAction, CursorMove, EditAction, EventData,
 };
 pub use clm_core::event::{
     DispatchDescriptor, Event, EventKind, EventResult, Plugin, PluginId,
     PluginRegistrar, PropertyKey, RawEventHandler, SortKey, Subscription,
 };
 pub use clm_core::registry::{
-    RawServiceHandler, Service, add_plugin, emit_event, execute_command,
-    query_service, register_command, register_resolver,
+    RawMutServiceHandler, RawServiceHandler, Service, add_plugin, emit_event,
+    execute_command, query_service, register_command, register_resolver,
 };
 pub use clm_core::value::Value;
 

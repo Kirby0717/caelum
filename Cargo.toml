@@ -5,6 +5,7 @@ members = [
   "clm-plugin-api",
   "clm-renderer",
   "clm-tui",
+  "plugins/clm-buffer",
   "plugins/clm-editing",
   "plugins/clm-modal",
   "plugins/clm-motions",

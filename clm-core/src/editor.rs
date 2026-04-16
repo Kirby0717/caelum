@@ -1,21 +1,19 @@
 use std::cell::RefCell;
-use std::path::Path;
 use std::rc::Rc;
 
-use crate::buffer::{Buffer, BufferId};
 use crate::value::Value;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CursorState {
     pub row: usize,
-    pub col: usize,
+    pub byte_col: usize,
 }
 impl From<CursorState> for Value {
     fn from(value: CursorState) -> Self {
         Self::Map(
             vec![
                 ("row".to_string(), Value::Int(value.row as i64)),
-                ("col".to_string(), Value::Int(value.col as i64)),
+                ("byte_col".to_string(), Value::Int(value.byte_col as i64)),
             ]
             .into_iter()
             .collect(),
@@ -33,13 +31,13 @@ impl TryFrom<Value> for CursorState {
         else {
             return Err(());
         };
-        let Some(Value::Int(col)) = cursor.get("col")
+        let Some(Value::Int(byte_col)) = cursor.get("byte_col")
         else {
             return Err(());
         };
         Ok(CursorState {
             row: *row as usize,
-            col: *col as usize,
+            byte_col: *byte_col as usize,
         })
     }
 }
@@ -77,77 +75,27 @@ impl TryFrom<Value> for Mode {
 }
 
 pub struct EditorState {
-    //pub buffers: BufferRegistry,
-    // まずは1つのバッファー
-    pub buffer: Buffer,
     pub running: bool,
 }
 impl EditorState {
     pub fn new() -> Self {
-        Self {
-            buffer: Buffer::new(BufferId(0)),
-            running: true,
-        }
-    }
-    pub fn from_file<P: AsRef<Path>>(path: P) -> std::io::Result<Self> {
-        Ok(Self {
-            buffer: Buffer::from_file(BufferId(0), path)?,
-            running: true,
-        })
+        Self { running: true }
     }
 }
-impl PluginContext for EditorState {
-    fn buffer_len_lines(&self) -> usize {
-        self.buffer.rope().len_lines()
-    }
-    fn buffer_len_chars(&self) -> usize {
-        self.buffer.rope().len_chars()
-    }
-    fn buffer_line(&self, line_idx: usize) -> Option<String> {
-        self.buffer
-            .rope()
-            .get_line(line_idx)
-            .map(|line| line.chars().collect())
-    }
-    fn buffer_line_len_chars(&self, line_idx: usize) -> usize {
-        let line = self.buffer.rope().line(line_idx);
-        let len = line.len_chars();
-        if len > 0 && line.char(len - 1) == '\n' {
-            len - 1
-        }
-        else {
-            len
-        }
-    }
-    fn buffer_line_to_char(&self, line_idx: usize) -> usize {
-        self.buffer.rope().line_to_char(line_idx)
-    }
-    fn buffer_insert_char(&mut self, char_idx: usize, ch: char) {
-        self.buffer.rope_mut().insert_char(char_idx, ch);
-    }
-    fn buffer_insert(&mut self, char_idx: usize, text: &str) {
-        self.buffer.rope_mut().insert(char_idx, text);
-    }
-    fn buffer_remove(&mut self, char_range: (usize, usize)) {
-        self.buffer.rope_mut().remove(char_range.0..char_range.1);
-    }
-    fn quit(&mut self) {
-        self.running = false;
+impl Default for EditorState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 pub type SharedState = Rc<RefCell<EditorState>>;
 
+impl PluginContext for EditorState {
+    fn quit(&mut self) {
+        self.running = false;
+    }
+}
 pub trait PluginContext {
-    // バッファー
-    fn buffer_len_lines(&self) -> usize;
-    fn buffer_len_chars(&self) -> usize;
-    fn buffer_line(&self, line_idx: usize) -> Option<String>;
-    fn buffer_line_len_chars(&self, line_idx: usize) -> usize;
-    fn buffer_line_to_char(&self, line_idx: usize) -> usize;
-    fn buffer_insert_char(&mut self, char_idx: usize, ch: char);
-    fn buffer_insert(&mut self, char_idx: usize, text: &str);
-    fn buffer_remove(&mut self, char_range: (usize, usize));
     // 制御
     fn quit(&mut self);
 }
