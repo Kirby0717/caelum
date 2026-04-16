@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use clm_plugin_api::core::*;
 use clm_plugin_api::input::*;
 
@@ -10,9 +8,10 @@ impl MotionPlugin {
         Self()
     }
 }
-#[clm_plugin_api::clm_handlers]
+#[clm_plugin_api::clm_handlers(name = "motion")]
 impl MotionPlugin {
-    fn key_input(
+    #[subscribe(priority = 500)]
+    fn on_key_input(
         &mut self,
         data: &EventData,
         _ctx: &mut dyn PluginContext,
@@ -142,13 +141,6 @@ impl MotionPlugin {
 }
 impl Plugin for MotionPlugin {
     fn init(&mut self, reg: PluginRegistrar) {
-        reg.subscribe(
-            "key_input",
-            HashMap::from([(
-                PropertyKey("priority".to_string()),
-                Value::Int(500),
-            )]),
-            Self::KEY_INPUT,
-        );
+        Self::register_service_and_subscribe(&reg);
     }
 }

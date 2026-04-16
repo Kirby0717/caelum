@@ -1,8 +1,13 @@
 [package]
-name = "clm-core"
+name = "clm-buffer"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 description.workspace = true
 repository.workspace = true
+
+[dependencies]
+clm-plugin-api = { path = "../../clm-plugin-api" }
+ropey = "2.0.0-beta.1"
+unicode-width = "0.2"

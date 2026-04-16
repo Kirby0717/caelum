@@ -55,7 +55,8 @@ use std::collections::HashMap;
 use crate::editor::PluginContext;
 use crate::event::data::EventData;
 use crate::registry::{
-    RawServiceHandler, Service, register_service, subscribe,
+    RawMutServiceHandler, RawServiceHandler, Service, ServiceHandler,
+    register_service, subscribe,
 };
 use crate::value::Value;
 
@@ -83,7 +84,20 @@ impl PluginRegistrar {
             name,
             Service {
                 plugin_id: self.plugin_id,
-                handler,
+                handler: ServiceHandler::Immutable(handler),
+            },
+        );
+    }
+    pub fn register_mut_service(
+        &self,
+        name: &str,
+        handler: RawMutServiceHandler,
+    ) {
+        register_service(
+            name,
+            Service {
+                plugin_id: self.plugin_id,
+                handler: ServiceHandler::Mutable(handler),
             },
         );
     }
