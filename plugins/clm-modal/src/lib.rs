@@ -147,27 +147,21 @@ impl ModalPlugin {
         let mut cursor = self.cursor;
         match edit {
             EditAction::InsertChar(c) => {
-                query_service(
-                    "buffer.insert",
-                    &[
-                        self.buffer_id.0.into(),
-                        cursor.row.into(),
-                        cursor.byte_col.into(),
-                        c.to_string().into(),
-                    ],
-                );
+                emit_buffer_op(BufferOp::Insert {
+                    buffer_id: self.buffer_id,
+                    line_idx: cursor.row,
+                    byte_col_idx: cursor.byte_col,
+                    text: c.to_string().clone(),
+                });
                 cursor.byte_col += c.len_utf8();
             }
             EditAction::InsertText(text) => {
-                query_service(
-                    "buffer.insert",
-                    &[
-                        self.buffer_id.0.into(),
-                        cursor.row.into(),
-                        cursor.byte_col.into(),
-                        text.into(),
-                    ],
-                );
+                emit_buffer_op(BufferOp::Insert {
+                    buffer_id: self.buffer_id,
+                    line_idx: cursor.row,
+                    byte_col_idx: cursor.byte_col,
+                    text: text.clone(),
+                });
                 cursor.byte_col += text.len();
             }
             EditAction::DeleteCharForward => {
@@ -175,31 +169,25 @@ impl ModalPlugin {
                 let right_one = &line[cursor.byte_col..].chars().next();
                 if let Some(c) = right_one {
                     let next_size = c.len_utf8();
-                    query_service(
-                        "buffer.remove",
-                        &[
-                            self.buffer_id.0.into(),
-                            cursor.row.into(),
-                            cursor.byte_col.into(),
-                            cursor.row.into(),
-                            (cursor.byte_col + next_size).into(),
-                        ],
-                    );
+                    emit_buffer_op(BufferOp::Remove {
+                        buffer_id: self.buffer_id,
+                        start_line_idx: cursor.row,
+                        start_byte_col_idx: cursor.byte_col,
+                        end_line_idx: cursor.row,
+                        end_byte_col_idx: cursor.byte_col + next_size,
+                    });
                 }
                 else {
                     if let Some(next_line) = self.line(cursor.row + 1)
                         && let Some(first) = next_line.chars().next()
                     {
-                        query_service(
-                            "buffer.remove",
-                            &[
-                                self.buffer_id.0.into(),
-                                (cursor.row + 1).into(),
-                                0.into(),
-                                (cursor.row + 1).into(),
-                                first.len_utf8().into(),
-                            ],
-                        );
+                        emit_buffer_op(BufferOp::Remove {
+                            buffer_id: self.buffer_id,
+                            start_line_idx: cursor.row + 1,
+                            start_byte_col_idx: 0,
+                            end_line_idx: cursor.row + 1,
+                            end_byte_col_idx: first.len_utf8(),
+                        });
                     }
                 }
             }
@@ -212,47 +200,39 @@ impl ModalPlugin {
                 let left_one = &line[..cursor.byte_col].chars().next_back();
                 if let Some(c) = left_one {
                     let prev_size = c.len_utf8();
-                    query_service(
-                        "buffer.remove",
-                        &[
-                            self.buffer_id.0.into(),
-                            cursor.row.into(),
-                            (cursor.byte_col - prev_size).into(),
-                            cursor.row.into(),
-                            cursor.byte_col.into(),
-                        ],
-                    );
+                    emit_buffer_op(BufferOp::Remove {
+                        buffer_id: self.buffer_id,
+                        start_line_idx: cursor.row,
+                        start_byte_col_idx: cursor.byte_col - prev_size,
+                        end_line_idx: cursor.row,
+                        end_byte_col_idx: cursor.byte_col,
+                    });
                     cursor.byte_col -= prev_size;
                 }
                 else {
                     if let Some(prev_line) = self.line(cursor.row - 1)
                         && let Some(last) = prev_line.chars().next_back()
                     {
-                        query_service(
-                            "buffer.remove",
-                            &[
-                                self.buffer_id.0.into(),
-                                (cursor.row - 1).into(),
-                                (prev_line.len() - last.len_utf8()).into(),
-                                (cursor.row - 1).into(),
-                                prev_line.len().into(),
-                            ],
-                        );
+                        emit_buffer_op(BufferOp::Remove {
+                            buffer_id: self.buffer_id,
+                            start_line_idx: cursor.row - 1,
+                            start_byte_col_idx: prev_line.len()
+                                - last.len_utf8(),
+                            end_line_idx: cursor.row - 1,
+                            end_byte_col_idx: prev_line.len(),
+                        });
                         cursor.row -= 1;
                         cursor.byte_col = prev_line.len() - last.len_utf8();
                     }
                 }
             }
             EditAction::NewLine => {
-                query_service(
-                    "buffer.insert",
-                    &[
-                        self.buffer_id.0.into(),
-                        cursor.row.into(),
-                        cursor.byte_col.into(),
-                        "\n".to_string().into(),
-                    ],
-                );
+                emit_buffer_op(BufferOp::Insert {
+                    buffer_id: self.buffer_id,
+                    line_idx: cursor.row,
+                    byte_col_idx: cursor.byte_col,
+                    text: "\n".to_string(),
+                });
                 cursor.row += 1;
                 cursor.byte_col = 0;
             }
@@ -280,7 +260,13 @@ impl ModalPlugin {
                 command_line.pop();
             }
             CommandLineAction::Execute => {
-                execute_command(command_line, &[]);
+                let parsed = command_line
+                    .split_whitespace()
+                    .map(String::from)
+                    .collect::<Vec<_>>();
+                if !parsed.is_empty() {
+                    execute_command(&parsed[0], &parsed[1..]);
+                }
                 command_line.clear();
                 self.mode = Mode::Normal;
             }
@@ -288,6 +274,21 @@ impl ModalPlugin {
                 command_line.clear();
             }
         }
+        EventResult::Handled
+    }
+    #[subscribe(priority = 500)]
+    fn on_switch_buffer(
+        &mut self,
+        data: &EventData,
+        _ctx: &mut dyn PluginContext,
+    ) -> EventResult {
+        let EventData::Custom(Value::Int(buf_id)) = data
+        else {
+            return EventResult::Propagate;
+        };
+        self.buffer_id = BufferId(*buf_id as usize);
+        self.cursor = CursorState::default();
+        self.clamp_cursor();
         EventResult::Handled
     }
     #[service]
@@ -322,6 +323,98 @@ impl Plugin for ModalPlugin {
                     DispatchDescriptor {
                         consumable: false,
                         sort_keys: vec![],
+                    },
+                )]
+            }),
+        );
+        register_command(
+            "w",
+            Box::new(|_| {
+                vec![(
+                    Event {
+                        kind: EventKind("buffer_op".to_string()),
+                        data: EventData::BufferOp(BufferOp::Save(BufferId(
+                            query_service("modal.buffer_id", &[])
+                                .unwrap()
+                                .try_into()
+                                .unwrap(),
+                        ))),
+                    },
+                    DispatchDescriptor {
+                        consumable: false,
+                        sort_keys: vec![],
+                    },
+                )]
+            }),
+        );
+        register_command(
+            "x",
+            Box::new(|_| {
+                vec![
+                    (
+                        Event {
+                            kind: EventKind("buffer_op".to_string()),
+                            data: EventData::BufferOp(BufferOp::Save(
+                                BufferId(
+                                    query_service("modal.buffer_id", &[])
+                                        .unwrap()
+                                        .try_into()
+                                        .unwrap(),
+                                ),
+                            )),
+                        },
+                        DispatchDescriptor {
+                            consumable: false,
+                            sort_keys: vec![],
+                        },
+                    ),
+                    (
+                        Event {
+                            kind: EventKind("quit".to_string()),
+                            data: EventData::None,
+                        },
+                        DispatchDescriptor {
+                            consumable: false,
+                            sort_keys: vec![],
+                        },
+                    ),
+                ]
+            }),
+        );
+        register_command(
+            "e",
+            Box::new(|args| {
+                let path = if let Some(path) = args.first() {
+                    path.clone()
+                }
+                else {
+                    let current_id: usize =
+                        query_service("modal.buffer_id", &[])
+                            .unwrap()
+                            .try_into()
+                            .unwrap();
+                    let file_path: Option<String> =
+                        query_service("buffer.file_path", &[current_id.into()])
+                            .unwrap()
+                            .try_into()
+                            .unwrap();
+                    let Some(file_path) = file_path
+                    else {
+                        return vec![];
+                    };
+                    file_path
+                };
+
+                let buf_id =
+                    query_service("buffer.open", &[path.into()]).unwrap();
+                vec![(
+                    Event {
+                        kind: EventKind("switch_buffer".to_string()),
+                        data: EventData::Custom(buf_id),
+                    },
+                    DispatchDescriptor {
+                        consumable: true,
+                        sort_keys: vec![SortKey("priority".to_string())],
                     },
                 )]
             }),

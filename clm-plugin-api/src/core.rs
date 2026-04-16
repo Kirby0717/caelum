@@ -1,6 +1,6 @@
 pub use clm_core::editor::{CursorState, Mode, PluginContext};
 pub use clm_core::event::data::{
-    BufferId, CommandLineAction, CursorMove, EditAction, EventData,
+    BufferId, BufferOp, CommandLineAction, CursorMove, EditAction, EventData,
 };
 pub use clm_core::event::{
     DispatchDescriptor, Event, EventKind, EventResult, Plugin, PluginId,
@@ -24,11 +24,23 @@ pub fn emit_set_mode(mode: Mode) {
         },
     );
 }
-pub fn emit_cursor_move(event: CursorMove) {
+pub fn emit_cursor_move(cursor_move: CursorMove) {
     emit_event(
         Event {
             kind: EventKind("cursor_move".to_string()),
-            data: EventData::Motion(event),
+            data: EventData::Motion(cursor_move),
+        },
+        DispatchDescriptor {
+            consumable: true,
+            sort_keys: vec![SortKey("priority".to_string())],
+        },
+    );
+}
+pub fn emit_buffer_op(buffer_op: BufferOp) {
+    emit_event(
+        Event {
+            kind: EventKind("buffer_op".to_string()),
+            data: EventData::BufferOp(buffer_op),
         },
         DispatchDescriptor {
             consumable: true,

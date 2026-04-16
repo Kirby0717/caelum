@@ -132,9 +132,7 @@ fn render(
             + line[cursor.byte_col..]
                 .chars()
                 .next()
-                .unwrap()
-                .width()
-                .unwrap_or(0);
+                .map_or(1, |c| c.width().unwrap_or(0));
         if display_col_l < view_offset.0 {
             view_offset.0 = display_col_l;
         }

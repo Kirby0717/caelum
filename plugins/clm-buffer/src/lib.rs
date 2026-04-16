@@ -257,62 +257,71 @@ impl BufferPlugin {
             Value::Null
         }
     }
-    #[service]
-    fn insert(&mut self, args: &[Value]) -> Value {
-        let buffer = match self.get_buffer_mut(args) {
-            Ok(buffer) => buffer,
-            Err(err) => return err,
-        };
-        let Some(Value::Int(line_idx)) = args.get(1)
+    #[subscribe(priority = 500)]
+    fn on_buffer_op(
+        &mut self,
+        data: &EventData,
+        _ctx: &mut dyn PluginContext,
+    ) -> EventResult {
+        let EventData::BufferOp(buffer_op) = data
         else {
-            return Value::Error("arg error".to_string());
+            return EventResult::Propagate;
         };
-        let Some(Value::Int(byte_col_idx)) = args.get(2)
-        else {
-            return Value::Error("arg error".to_string());
-        };
-        let Some(Value::Str(text)) = args.get(3)
-        else {
-            return Value::Error("arg error".to_string());
-        };
-        let byte_idx =
-            buffer.rope().line_to_byte_idx(*line_idx as usize, LF_CR)
-                + *byte_col_idx as usize;
-        buffer.rope_mut().insert(byte_idx, text);
-        Value::Null
-    }
-    #[service]
-    fn remove(&mut self, args: &[Value]) -> Value {
-        let buffer = match self.get_buffer_mut(args) {
-            Ok(buffer) => buffer,
-            Err(err) => return err,
-        };
-        let Some(Value::Int(start_line_idx)) = args.get(1)
-        else {
-            return Value::Error("arg error".to_string());
-        };
-        let Some(Value::Int(start_byte_col_idx)) = args.get(2)
-        else {
-            return Value::Error("arg error".to_string());
-        };
-        let Some(Value::Int(end_line_idx)) = args.get(3)
-        else {
-            return Value::Error("arg error".to_string());
-        };
-        let Some(Value::Int(end_byte_col_idx)) = args.get(4)
-        else {
-            return Value::Error("arg error".to_string());
-        };
-        let start_byte_idx = buffer
-            .rope()
-            .line_to_byte_idx(*start_line_idx as usize, LF_CR)
-            + *start_byte_col_idx as usize;
-        let end_byte_idx = buffer
-            .rope()
-            .line_to_byte_idx(*end_line_idx as usize, LF_CR)
-            + *end_byte_col_idx as usize;
-        buffer.rope_mut().remove(start_byte_idx..end_byte_idx);
-        Value::Null
+        match buffer_op {
+            BufferOp::Insert {
+                buffer_id,
+                line_idx,
+                byte_col_idx,
+                text,
+            } => {
+                if let Some(buffer) = self.buffers.get_mut(buffer_id) {
+                    let byte_idx =
+                        buffer.rope().line_to_byte_idx(*line_idx, LF_CR)
+                            + *byte_col_idx;
+                    buffer.rope_mut().insert(byte_idx, text);
+                }
+                else {
+                    return EventResult::Propagate;
+                }
+            }
+            BufferOp::Remove {
+                buffer_id,
+                start_line_idx,
+                start_byte_col_idx,
+                end_line_idx,
+                end_byte_col_idx,
+            } => {
+                if let Some(buffer) = self.buffers.get_mut(buffer_id) {
+                    let start_byte_idx =
+                        buffer.rope().line_to_byte_idx(*start_line_idx, LF_CR)
+                            + *start_byte_col_idx;
+                    let end_byte_idx =
+                        buffer.rope().line_to_byte_idx(*end_line_idx, LF_CR)
+                            + *end_byte_col_idx;
+                    buffer.rope_mut().remove(start_byte_idx..end_byte_idx);
+                }
+                else {
+                    return EventResult::Propagate;
+                }
+            }
+            BufferOp::Close(buffer_id) => {
+                if let Some(_buffer) = self.buffers.remove(buffer_id) {
+                    return EventResult::Handled;
+                }
+                else {
+                    return EventResult::Propagate;
+                }
+            }
+            BufferOp::Save(buffer_id) => {
+                if let Some(buffer) = self.buffers.get_mut(buffer_id) {
+                    let _ = buffer.save();
+                }
+                else {
+                    return EventResult::Propagate;
+                }
+            }
+        }
+        EventResult::Handled
     }
     #[service]
     fn create(&mut self, _args: &[Value]) -> Value {
@@ -337,39 +346,6 @@ impl BufferPlugin {
         self.buffers.insert(id, buffer);
         self.next_id += 1;
         Value::Int(id.0 as i64)
-    }
-    #[service]
-    fn close(&mut self, args: &[Value]) -> Value {
-        let Some(Value::Int(id)) = args.first()
-        else {
-            return Value::Error("arg error".to_string());
-        };
-        let id = BufferId(*id as usize);
-        let buffer = self.buffers.remove(&id);
-        if let Some(_buffer) = buffer {
-            Value::Null
-        }
-        else {
-            Value::Error("buffer not found".to_string())
-        }
-    }
-    #[service]
-    fn save(&mut self, args: &[Value]) -> Value {
-        let Some(Value::Int(id)) = args.first()
-        else {
-            return Value::Error("arg error".to_string());
-        };
-        let id = BufferId(*id as usize);
-        let buffer = self.buffers.get_mut(&id);
-        if let Some(buffer) = buffer {
-            if let Err(e) = buffer.save() {
-                return Value::Error(e);
-            }
-            Value::Null
-        }
-        else {
-            Value::Error("buffer not found".to_string())
-        }
     }
 }
 
