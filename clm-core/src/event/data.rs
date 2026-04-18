@@ -11,6 +11,8 @@ pub enum EventData {
     Edit(EditAction),
     BufferOp(BufferOp),
     CommandLine(CommandLineAction),
+    BufferChanged(BufferChange),
+    BufferId(BufferId),
     Custom(Value),
 }
 
@@ -67,4 +69,22 @@ pub enum CommandLineAction {
     Backspace,
     Execute,
     Clear,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BufferChange {
+    Insert {
+        buffer_id: BufferId,
+        start_line_idx: usize,
+        start_byte_col_idx: usize,
+        end_line_idx: usize,
+        end_byte_col_idx: usize,
+    },
+    Remove {
+        buffer_id: BufferId,
+        line_idx: usize,
+        byte_col_idx: usize,
+        text: String,
+    },
+    Save(BufferId),
 }

@@ -1,4 +1,5 @@
 use clm_plugin_api::core::*;
+use clm_plugin_api::priority;
 
 #[derive(Debug)]
 pub struct ModalPlugin {
@@ -65,7 +66,7 @@ impl ModalPlugin {
 
 #[clm_plugin_api::clm_handlers(name = "modal")]
 impl ModalPlugin {
-    #[subscribe(priority = 500)]
+    #[subscribe(priority = priority::DEFAULT)]
     fn on_set_mode(
         &mut self,
         data: &EventData,
@@ -77,9 +78,16 @@ impl ModalPlugin {
         };
         self.mode = *mode;
         self.clamp_cursor();
+        emit_event(
+            Event {
+                kind: EventKind("mode_changed".to_string()),
+                data: EventData::Mode(*mode),
+            },
+            DispatchDescriptor::Broadcast,
+        );
         EventResult::Handled
     }
-    #[subscribe(priority = 500)]
+    #[subscribe(priority = priority::DEFAULT)]
     fn on_quit(
         &mut self,
         _data: &EventData,
@@ -88,7 +96,7 @@ impl ModalPlugin {
         ctx.quit();
         EventResult::Handled
     }
-    #[subscribe(priority = 500)]
+    #[subscribe(priority = priority::DEFAULT)]
     fn on_cursor_move(
         &mut self,
         data: &EventData,
@@ -134,7 +142,7 @@ impl ModalPlugin {
         self.clamp_cursor();
         EventResult::Handled
     }
-    #[subscribe(priority = 500)]
+    #[subscribe(priority = priority::DEFAULT)]
     fn on_edit(
         &mut self,
         data: &EventData,
@@ -241,7 +249,7 @@ impl ModalPlugin {
         self.cursor = cursor;
         EventResult::Handled
     }
-    #[subscribe(priority = 500)]
+    #[subscribe(priority = priority::DEFAULT)]
     fn on_command_line_action(
         &mut self,
         data: &EventData,
@@ -276,7 +284,7 @@ impl ModalPlugin {
         }
         EventResult::Handled
     }
-    #[subscribe(priority = 500)]
+    #[subscribe(priority = priority::DEFAULT)]
     fn on_switch_buffer(
         &mut self,
         data: &EventData,
@@ -320,10 +328,7 @@ impl Plugin for ModalPlugin {
                         kind: EventKind("quit".to_string()),
                         data: EventData::None,
                     },
-                    DispatchDescriptor {
-                        consumable: false,
-                        sort_keys: vec![],
-                    },
+                    DispatchDescriptor::Broadcast,
                 )]
             }),
         );
@@ -340,10 +345,9 @@ impl Plugin for ModalPlugin {
                                 .unwrap(),
                         ))),
                     },
-                    DispatchDescriptor {
-                        consumable: false,
-                        sort_keys: vec![],
-                    },
+                    DispatchDescriptor::Consumable(vec![SortKey(
+                        "priority".to_string(),
+                    )]),
                 )]
             }),
         );
@@ -363,20 +367,16 @@ impl Plugin for ModalPlugin {
                                 ),
                             )),
                         },
-                        DispatchDescriptor {
-                            consumable: false,
-                            sort_keys: vec![],
-                        },
+                        DispatchDescriptor::Consumable(vec![SortKey(
+                            "priority".to_string(),
+                        )]),
                     ),
                     (
                         Event {
                             kind: EventKind("quit".to_string()),
                             data: EventData::None,
                         },
-                        DispatchDescriptor {
-                            consumable: false,
-                            sort_keys: vec![],
-                        },
+                        DispatchDescriptor::Broadcast,
                     ),
                 ]
             }),
@@ -412,10 +412,9 @@ impl Plugin for ModalPlugin {
                         kind: EventKind("switch_buffer".to_string()),
                         data: EventData::Custom(buf_id),
                     },
-                    DispatchDescriptor {
-                        consumable: true,
-                        sort_keys: vec![SortKey("priority".to_string())],
-                    },
+                    DispatchDescriptor::Consumable(vec![SortKey(
+                        "priority".to_string(),
+                    )]),
                 )]
             }),
         );

@@ -116,11 +116,11 @@ pub struct Event {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DispatchDescriptor {
-    // 配信方法 true: 消費型 false: ブロードキャスト型
-    pub consumable: bool,
-    // 配信性質
-    pub sort_keys: Vec<SortKey>,
+pub enum DispatchDescriptor {
+    // ブロードキャスト型
+    Broadcast,
+    // 消費型(配信性質)
+    Consumable(Vec<SortKey>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

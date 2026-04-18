@@ -1,6 +1,7 @@
 pub use clm_core::editor::{CursorState, Mode, PluginContext};
 pub use clm_core::event::data::{
-    BufferId, BufferOp, CommandLineAction, CursorMove, EditAction, EventData,
+    BufferChange, BufferId, BufferOp, CommandLineAction, CursorMove,
+    EditAction, EventData,
 };
 pub use clm_core::event::{
     DispatchDescriptor, Event, EventKind, EventResult, Plugin, PluginId,
@@ -18,10 +19,7 @@ pub fn emit_set_mode(mode: Mode) {
             kind: EventKind("set_mode".to_string()),
             data: EventData::Mode(mode),
         },
-        DispatchDescriptor {
-            consumable: true,
-            sort_keys: vec![SortKey("priority".to_string())],
-        },
+        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
     );
 }
 pub fn emit_cursor_move(cursor_move: CursorMove) {
@@ -30,10 +28,7 @@ pub fn emit_cursor_move(cursor_move: CursorMove) {
             kind: EventKind("cursor_move".to_string()),
             data: EventData::Motion(cursor_move),
         },
-        DispatchDescriptor {
-            consumable: true,
-            sort_keys: vec![SortKey("priority".to_string())],
-        },
+        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
     );
 }
 pub fn emit_buffer_op(buffer_op: BufferOp) {
@@ -42,10 +37,7 @@ pub fn emit_buffer_op(buffer_op: BufferOp) {
             kind: EventKind("buffer_op".to_string()),
             data: EventData::BufferOp(buffer_op),
         },
-        DispatchDescriptor {
-            consumable: true,
-            sort_keys: vec![SortKey("priority".to_string())],
-        },
+        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
     );
 }
 pub fn emit_edit(edit: EditAction) {
@@ -54,10 +46,7 @@ pub fn emit_edit(edit: EditAction) {
             kind: EventKind("edit".to_string()),
             data: EventData::Edit(edit),
         },
-        DispatchDescriptor {
-            consumable: true,
-            sort_keys: vec![SortKey("priority".to_string())],
-        },
+        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
     );
 }
 pub fn emit_command_line(cmd_action: CommandLineAction) {
@@ -66,9 +55,6 @@ pub fn emit_command_line(cmd_action: CommandLineAction) {
             kind: EventKind("command_line_action".to_string()),
             data: EventData::CommandLine(cmd_action),
         },
-        DispatchDescriptor {
-            consumable: true,
-            sort_keys: vec![SortKey("priority".to_string())],
-        },
+        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
     );
 }

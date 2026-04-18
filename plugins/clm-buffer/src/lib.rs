@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use clm_plugin_api::core::*;
+use clm_plugin_api::priority;
 use ropey::LineType::LF_CR;
 use ropey::Rope;
 
@@ -257,7 +258,7 @@ impl BufferPlugin {
             Value::Null
         }
     }
-    #[subscribe(priority = 500)]
+    #[subscribe(priority = priority::DEFAULT)]
     fn on_buffer_op(
         &mut self,
         data: &EventData,
@@ -279,6 +280,22 @@ impl BufferPlugin {
                         buffer.rope().line_to_byte_idx(*line_idx, LF_CR)
                             + *byte_col_idx;
                     buffer.rope_mut().insert(byte_idx, text);
+                    emit_event(
+                        Event {
+                            kind: EventKind("buffer_changed".to_string()),
+                            data: EventData::BufferChanged(
+                                BufferChange::Insert {
+                                    buffer_id: *buffer_id,
+                                    start_line_idx: *line_idx,
+                                    start_byte_col_idx: *byte_col_idx,
+                                    end_line_idx: *line_idx,
+                                    end_byte_col_idx: *byte_col_idx
+                                        + text.len(),
+                                },
+                            ),
+                        },
+                        DispatchDescriptor::Broadcast,
+                    );
                 }
                 else {
                     return EventResult::Propagate;
@@ -298,7 +315,25 @@ impl BufferPlugin {
                     let end_byte_idx =
                         buffer.rope().line_to_byte_idx(*end_line_idx, LF_CR)
                             + *end_byte_col_idx;
+                    let remove_text = buffer
+                        .rope()
+                        .slice(start_byte_idx..end_byte_idx)
+                        .to_string();
                     buffer.rope_mut().remove(start_byte_idx..end_byte_idx);
+                    emit_event(
+                        Event {
+                            kind: EventKind("buffer_changed".to_string()),
+                            data: EventData::BufferChanged(
+                                BufferChange::Remove {
+                                    buffer_id: *buffer_id,
+                                    line_idx: *start_line_idx,
+                                    byte_col_idx: *start_byte_col_idx,
+                                    text: remove_text,
+                                },
+                            ),
+                        },
+                        DispatchDescriptor::Broadcast,
+                    );
                 }
                 else {
                     return EventResult::Propagate;
@@ -315,6 +350,13 @@ impl BufferPlugin {
             BufferOp::Save(buffer_id) => {
                 if let Some(buffer) = self.buffers.get_mut(buffer_id) {
                     let _ = buffer.save();
+                    emit_event(
+                        Event {
+                            kind: EventKind("buffer_saved".to_string()),
+                            data: EventData::BufferId(*buffer_id),
+                        },
+                        DispatchDescriptor::Broadcast,
+                    );
                 }
                 else {
                     return EventResult::Propagate;

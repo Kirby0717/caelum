@@ -55,10 +55,9 @@ fn main() -> anyhow::Result<()> {
                         kind: EventKind("key_input".to_string()),
                         data: EventData::Key(convert_key_event(key_event)),
                     },
-                    DispatchDescriptor {
-                        consumable: true,
-                        sort_keys: vec![SortKey("priority".to_string())],
-                    },
+                    DispatchDescriptor::Consumable(vec![SortKey(
+                        "priority".to_string(),
+                    )]),
                 );
             }
             Event::Resize(width, height) => {
