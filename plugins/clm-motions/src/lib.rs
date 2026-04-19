@@ -51,6 +51,12 @@ impl MotionPlugin {
                         "D" => {
                             emit_cursor_move(CursorMove::Right(5));
                         }
+                        "i" => {
+                            emit_edit(EditAction::Undo);
+                        }
+                        "I" => {
+                            emit_edit(EditAction::Redo);
+                        }
                         "j" => {
                             emit_set_mode(Mode::Insert);
                         }

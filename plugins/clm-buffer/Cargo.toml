@@ -11,3 +11,4 @@ repository.workspace = true
 clm-plugin-api = { path = "../../clm-plugin-api" }
 ropey = "2.0.0-beta.1"
 unicode-width = "0.2"
+fastrand = "2"

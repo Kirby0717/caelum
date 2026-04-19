@@ -11,6 +11,11 @@ pub enum Value {
     Map(HashMap<String, Value>),
     Error(String),
 }
+impl From<()> for Value {
+    fn from(_: ()) -> Self {
+        Value::Null
+    }
+}
 impl From<bool> for Value {
     fn from(value: bool) -> Self {
         Value::Bool(value)
@@ -125,7 +130,29 @@ where
         )
     }
 }
+impl<T> From<Result<T, String>> for Value
+where
+    Value: From<T>,
+{
+    fn from(value: Result<T, String>) -> Self {
+        match value {
+            Ok(value) => value.into(),
+            Err(e) => Value::Error(e),
+        }
+    }
+}
 
+impl TryFrom<Value> for () {
+    type Error = ();
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if Value::Null == value {
+            Ok(())
+        }
+        else {
+            Err(())
+        }
+    }
+}
 impl TryFrom<Value> for bool {
     type Error = ();
     fn try_from(value: Value) -> Result<Self, Self::Error> {

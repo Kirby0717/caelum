@@ -186,9 +186,9 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
                     }
                     let id = subscription.plugin_id;
                     // プラグインの取り出し
-                    PLUGINS.with_borrow_mut(|plugins| {
+                    PLUGINS.with_borrow(|plugins| {
                         let plugin = plugins
-                            .get_mut(id.0)
+                            .get(id.0)
                             .and_then(|plugin| plugin.try_borrow_mut().ok());
                         if let Some(mut plugin) = plugin {
                             // イベントハンドラーの実行

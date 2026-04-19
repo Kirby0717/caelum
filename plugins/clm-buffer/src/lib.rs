@@ -8,18 +8,22 @@ use ropey::Rope;
 
 #[derive(Debug)]
 pub struct Buffer {
-    rope: Rope,
+    history: Vec<Rope>,
+    head: usize,
     file_path: Option<PathBuf>,
     dirty: bool,
     id: BufferId,
+    lock_holder: Option<i64>,
 }
 impl Buffer {
     pub fn new(id: BufferId) -> Self {
         Self {
-            rope: Rope::new(),
+            history: vec![Rope::new()],
+            head: 0,
             file_path: None,
             dirty: false,
             id,
+            lock_holder: None,
         }
     }
     pub fn from_file<P: AsRef<Path>>(
@@ -29,18 +33,23 @@ impl Buffer {
         let file_path = Some(path.as_ref().to_path_buf());
         let file = std::fs::File::open(path)?;
         Ok(Self {
-            rope: Rope::from_reader(file)?,
+            history: vec![Rope::from_reader(file)?],
+            head: 0,
             file_path,
             dirty: false,
             id,
+            lock_holder: None,
         })
     }
     pub fn save(&mut self) -> Result<(), String> {
+        if self.is_locked() {
+            return Err("buffer is locked".to_string());
+        }
         if let Some(file_path) = &self.file_path {
             let file =
                 std::fs::File::create(file_path).map_err(|e| e.to_string())?;
             let file = std::io::BufWriter::new(file);
-            self.rope.write_to(file).map_err(|e| e.to_string())?;
+            self.rope().write_to(file).map_err(|e| e.to_string())?;
             self.dirty = false;
             Ok(())
         }
@@ -48,27 +57,71 @@ impl Buffer {
             Err("no file name".to_string())
         }
     }
-    #[inline]
     pub fn rope(&self) -> &Rope {
-        &self.rope
+        &self.history[self.head]
     }
-    #[inline]
-    pub fn rope_mut(&mut self) -> &mut Rope {
+    pub fn rope_mut(&mut self, key: Option<i64>) -> Option<&mut Rope> {
+        if let Some(lock) = self.lock_holder {
+            if key? != lock {
+                return None;
+            }
+        }
+        else {
+            self.history.truncate(self.head + 1);
+            self.history.push(self.history[self.head].clone());
+            self.head += 1;
+        }
         self.dirty = true;
-        &mut self.rope
+        Some(&mut self.history[self.head])
     }
 
-    #[inline]
     pub fn id(&self) -> BufferId {
         self.id
     }
-    #[inline]
     pub fn file_path(&self) -> Option<&Path> {
         self.file_path.as_deref()
     }
-    #[inline]
     pub fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    pub fn lock(&mut self) -> Result<i64, String> {
+        if self.lock_holder.is_some() {
+            return Err("buffer is locked".to_string());
+        }
+        let key = fastrand::i64(..);
+        self.lock_holder = Some(key);
+        self.history.truncate(self.head + 1);
+        self.history.push(self.history[self.head].clone());
+        self.head += 1;
+        Ok(key)
+    }
+    pub fn is_locked(&self) -> bool {
+        self.lock_holder.is_some()
+    }
+    pub fn unlock(&mut self, key: i64) -> Result<(), String> {
+        let Some(lock) = self.lock_holder
+        else {
+            return Err("buffer is not locked".to_string());
+        };
+        if lock == key {
+            self.lock_holder = None;
+            Ok(())
+        }
+        else {
+            Err("invalid key".to_string())
+        }
+    }
+
+    pub fn undo(&mut self) {
+        if self.head != 0 {
+            self.head -= 1;
+        }
+    }
+    pub fn redo(&mut self) {
+        if self.head + 1 != self.history.len() {
+            self.head += 1;
+        }
     }
 }
 
@@ -274,12 +327,17 @@ impl BufferPlugin {
                 line_idx,
                 byte_col_idx,
                 text,
+                key,
             } => {
                 if let Some(buffer) = self.buffers.get_mut(buffer_id) {
                     let byte_idx =
                         buffer.rope().line_to_byte_idx(*line_idx, LF_CR)
                             + *byte_col_idx;
-                    buffer.rope_mut().insert(byte_idx, text);
+                    let Some(rope) = buffer.rope_mut(*key)
+                    else {
+                        return EventResult::Handled;
+                    };
+                    rope.insert(byte_idx, text);
                     emit_event(
                         Event {
                             kind: EventKind("buffer_changed".to_string()),
@@ -307,6 +365,7 @@ impl BufferPlugin {
                 start_byte_col_idx,
                 end_line_idx,
                 end_byte_col_idx,
+                key,
             } => {
                 if let Some(buffer) = self.buffers.get_mut(buffer_id) {
                     let start_byte_idx =
@@ -319,7 +378,11 @@ impl BufferPlugin {
                         .rope()
                         .slice(start_byte_idx..end_byte_idx)
                         .to_string();
-                    buffer.rope_mut().remove(start_byte_idx..end_byte_idx);
+                    let Some(rope) = buffer.rope_mut(*key)
+                    else {
+                        return EventResult::Handled;
+                    };
+                    rope.remove(start_byte_idx..end_byte_idx);
                     emit_event(
                         Event {
                             kind: EventKind("buffer_changed".to_string()),
@@ -339,7 +402,47 @@ impl BufferPlugin {
                     return EventResult::Propagate;
                 }
             }
+            BufferOp::Undo(buffer_id) => {
+                if let Some(buffer) = self.buffers.get_mut(buffer_id) {
+                    buffer.undo();
+                    emit_event(
+                        Event {
+                            kind: EventKind("buffer_changed".to_string()),
+                            data: EventData::BufferChanged(
+                                BufferChange::Reset(*buffer_id),
+                            ),
+                        },
+                        DispatchDescriptor::Broadcast,
+                    );
+                }
+                else {
+                    return EventResult::Propagate;
+                }
+            }
+            BufferOp::Redo(buffer_id) => {
+                if let Some(buffer) = self.buffers.get_mut(buffer_id) {
+                    buffer.redo();
+                    emit_event(
+                        Event {
+                            kind: EventKind("buffer_changed".to_string()),
+                            data: EventData::BufferChanged(
+                                BufferChange::Reset(*buffer_id),
+                            ),
+                        },
+                        DispatchDescriptor::Broadcast,
+                    );
+                }
+                else {
+                    return EventResult::Propagate;
+                }
+            }
             BufferOp::Close(buffer_id) => {
+                if let Some(buffer) = self.buffers.get(buffer_id)
+                    && buffer.is_locked()
+                {
+                    // TODO: エラー出力
+                    return EventResult::Handled;
+                }
                 if let Some(_buffer) = self.buffers.remove(buffer_id) {
                     return EventResult::Handled;
                 }
@@ -364,6 +467,34 @@ impl BufferPlugin {
             }
         }
         EventResult::Handled
+    }
+    #[service]
+    fn lock(&mut self, args: &[Value]) -> Value {
+        let buffer = match self.get_buffer_mut(args) {
+            Ok(buffer) => buffer,
+            Err(err) => return err,
+        };
+        buffer.lock().into()
+    }
+    #[service]
+    fn is_locked(&self, args: &[Value]) -> Value {
+        let buffer = match self.get_buffer(args) {
+            Ok(buffer) => buffer,
+            Err(err) => return err,
+        };
+        buffer.is_locked().into()
+    }
+    #[service]
+    fn unlock(&mut self, args: &[Value]) -> Value {
+        let buffer = match self.get_buffer_mut(args) {
+            Ok(buffer) => buffer,
+            Err(err) => return err,
+        };
+        let Some(Value::Int(key)) = args.get(1)
+        else {
+            return Value::Error("arg error".to_string());
+        };
+        buffer.unlock(*key).into()
     }
     #[service]
     fn create(&mut self, _args: &[Value]) -> Value {

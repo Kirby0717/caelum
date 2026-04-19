@@ -40,6 +40,7 @@ pub enum BufferOp {
         line_idx: usize,
         byte_col_idx: usize,
         text: String,
+        key: Option<i64>,
     },
     Remove {
         buffer_id: BufferId,
@@ -47,7 +48,10 @@ pub enum BufferOp {
         start_byte_col_idx: usize,
         end_line_idx: usize,
         end_byte_col_idx: usize,
+        key: Option<i64>,
     },
+    Undo(BufferId),
+    Redo(BufferId),
     Close(BufferId),
     Save(BufferId),
 }
@@ -62,6 +66,8 @@ pub enum EditAction {
     NewLine,
     NewLineBelow,
     NewLineAbove,
+    Undo,
+    Redo,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommandLineAction {
@@ -87,4 +93,5 @@ pub enum BufferChange {
         text: String,
     },
     Save(BufferId),
+    Reset(BufferId),
 }

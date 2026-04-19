@@ -7,6 +7,7 @@ pub struct ModalPlugin {
     cursor: CursorState,
     command_line: String,
     buffer_id: BufferId,
+    key_holder: Option<i64>,
 }
 impl ModalPlugin {
     pub fn new(path: Option<&str>) -> Self {
@@ -27,6 +28,7 @@ impl ModalPlugin {
             cursor,
             command_line,
             buffer_id: BufferId(id),
+            key_holder: None,
         }
     }
     pub fn len_lines(&self) -> usize {
@@ -76,6 +78,28 @@ impl ModalPlugin {
         else {
             return EventResult::Propagate;
         };
+        if self.mode != Mode::Insert && *mode == Mode::Insert {
+            if let Value::Int(key) =
+                query_service("buffer.lock", &[self.buffer_id.0.into()])
+                    .unwrap()
+            {
+                self.key_holder = Some(key);
+            }
+            else {
+                // TODO: エラー出力
+            }
+        }
+        if self.mode == Mode::Insert && *mode != Mode::Insert {
+            let key = self.key_holder.unwrap();
+            let r = query_service(
+                "buffer.unlock",
+                &[self.buffer_id.0.into(), key.into()],
+            )
+            .unwrap();
+            if let Value::Error(e) = r {
+                panic!("{e}")
+            }
+        }
         self.mode = *mode;
         self.clamp_cursor();
         emit_event(
@@ -160,6 +184,7 @@ impl ModalPlugin {
                     line_idx: cursor.row,
                     byte_col_idx: cursor.byte_col,
                     text: c.to_string().clone(),
+                    key: self.key_holder,
                 });
                 cursor.byte_col += c.len_utf8();
             }
@@ -169,6 +194,7 @@ impl ModalPlugin {
                     line_idx: cursor.row,
                     byte_col_idx: cursor.byte_col,
                     text: text.clone(),
+                    key: self.key_holder,
                 });
                 cursor.byte_col += text.len();
             }
@@ -183,6 +209,7 @@ impl ModalPlugin {
                         start_byte_col_idx: cursor.byte_col,
                         end_line_idx: cursor.row,
                         end_byte_col_idx: cursor.byte_col + next_size,
+                        key: self.key_holder,
                     });
                 }
                 else {
@@ -195,6 +222,7 @@ impl ModalPlugin {
                             start_byte_col_idx: 0,
                             end_line_idx: cursor.row + 1,
                             end_byte_col_idx: first.len_utf8(),
+                            key: self.key_holder,
                         });
                     }
                 }
@@ -214,6 +242,7 @@ impl ModalPlugin {
                         start_byte_col_idx: cursor.byte_col - prev_size,
                         end_line_idx: cursor.row,
                         end_byte_col_idx: cursor.byte_col,
+                        key: self.key_holder,
                     });
                     cursor.byte_col -= prev_size;
                 }
@@ -228,6 +257,7 @@ impl ModalPlugin {
                                 - last.len_utf8(),
                             end_line_idx: cursor.row - 1,
                             end_byte_col_idx: prev_line.len(),
+                            key: None,
                         });
                         cursor.row -= 1;
                         cursor.byte_col = prev_line.len() - last.len_utf8();
@@ -240,9 +270,16 @@ impl ModalPlugin {
                     line_idx: cursor.row,
                     byte_col_idx: cursor.byte_col,
                     text: "\n".to_string(),
+                    key: self.key_holder,
                 });
                 cursor.row += 1;
                 cursor.byte_col = 0;
+            }
+            EditAction::Undo => {
+                emit_buffer_op(BufferOp::Undo(self.buffer_id));
+            }
+            EditAction::Redo => {
+                emit_buffer_op(BufferOp::Redo(self.buffer_id));
             }
             _ => return EventResult::Propagate,
         }
@@ -296,6 +333,19 @@ impl ModalPlugin {
         };
         self.buffer_id = BufferId(*buf_id as usize);
         self.cursor = CursorState::default();
+        self.clamp_cursor();
+        EventResult::Handled
+    }
+    #[subscribe(priority = priority::DEFAULT)]
+    fn on_buffer_changed(
+        &mut self,
+        data: &EventData,
+        _ctx: &mut dyn PluginContext,
+    ) -> EventResult {
+        let EventData::BufferChanged(_buffer_change) = data
+        else {
+            return EventResult::Propagate;
+        };
         self.clamp_cursor();
         EventResult::Handled
     }
