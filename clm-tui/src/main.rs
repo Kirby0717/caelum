@@ -1,21 +1,15 @@
 use std::io::stdout;
 
-use clm_core::editor::{CursorState, EditorState, Mode};
-use clm_core::event::{
-    DispatchDescriptor, Event as ClmEvent, EventKind, PropertyKey, SortKey,
-};
-use clm_core::registry::{
-    Resolver, add_plugin, dispatch_next, emit_event, query_service,
-    register_resolver,
-};
+use clm_core::editor::EditorState;
+use clm_core::event::{DispatchDescriptor, Event as ClmEvent, EventKind, PropertyKey, SortKey};
+use clm_core::registry::{Resolver, add_plugin, dispatch_next, emit_event, register_resolver};
 use clm_core::value::Value;
-use clm_plugin_api::core::EventData;
+use clm_plugin_api::data::*;
 use crossterm::cursor::{MoveTo, SetCursorStyle};
 use crossterm::execute;
 use crossterm::style::Print;
 use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode,
-    enable_raw_mode,
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use unicode_width::UnicodeWidthChar;
 
@@ -28,8 +22,7 @@ fn main() -> anyhow::Result<()> {
         SortKey("priority".to_string()),
         PropertyKey("priority".to_string()),
         Box::new(|priority: Option<&Value>| {
-            let Some(Value::Int(priority)) = priority
-            else {
+            let Some(Value::Int(priority)) = priority else {
                 return i64::MIN;
             };
             *priority
@@ -53,11 +46,9 @@ fn main() -> anyhow::Result<()> {
                 emit_event(
                     ClmEvent {
                         kind: EventKind("key_input".to_string()),
-                        data: EventData::Key(convert_key_event(key_event)),
+                        data: convert_key_event(key_event).into(),
                     },
-                    DispatchDescriptor::Consumable(vec![SortKey(
-                        "priority".to_string(),
-                    )]),
+                    DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
                 );
             }
             Event::Resize(width, height) => {
@@ -80,32 +71,17 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn render(
-    size: (u16, u16),
-    view_offset: &mut (usize, usize),
-) -> anyhow::Result<()> {
+fn render(size: (u16, u16), view_offset: &mut (usize, usize)) -> anyhow::Result<()> {
     use crossterm::terminal::{Clear, ClearType};
     execute!(stdout(), Clear(ClearType::All))?;
-    let mode = query_service("modal.mode", &[])
-        .and_then(|mode| mode.try_into().ok())
-        .unwrap_or(Mode::Normal);
-    let cursor: CursorState = query_service("modal.cursor", &[])
-        .and_then(|cursor| cursor.try_into().ok())
+    let mode: Mode = query_service("modal.mode", &[])?.try_into().unwrap();
+    let cursor: CursorState = query_service("modal.cursor", &[])?
+        .try_into()
         .unwrap_or_default();
     let view_size = (size.0, size.1 - 1);
-    let buffer_id: usize = query_service("modal.buffer_id", &[])
-        .unwrap()
+    let buffer_id: BufferId = query_service("modal.buffer_id", &[])?.try_into().unwrap();
+    let command_line: String = query_service("modal.command_line", &[])?
         .try_into()
-        .unwrap();
-    let command_line = query_service("modal.command_line", &[])
-        .and_then(|command_line| {
-            if let Value::Str(command_line) = command_line {
-                Some(command_line)
-            }
-            else {
-                None
-            }
-        })
         .unwrap_or_default();
 
     // オフセットの計算
@@ -116,13 +92,10 @@ fn render(
         if view_offset.1 + view_size.1 as usize <= cursor.row {
             view_offset.1 = cursor.row - (view_size.1 as usize - 1);
         }
-        let line: String = query_service(
-            "buffer.line",
-            &[buffer_id.into(), cursor.row.into()],
-        )
-        .unwrap()
-        .try_into()
-        .unwrap();
+        let line: String = query_service("buffer.line", &[buffer_id.into(), cursor.row.into()])
+            .unwrap()
+            .try_into()
+            .unwrap();
         let display_col_l = line[..cursor.byte_col]
             .chars()
             .map(|c| c.width().unwrap_or(0))
@@ -159,8 +132,7 @@ fn render(
                     view_offset.0 + view_size.0 as usize
                 ))
             )?;
-        }
-        else {
+        } else {
             break;
         }
     }
@@ -169,20 +141,15 @@ fn render(
     match mode {
         Mode::Normal => execute!(stdout(), Print("-- NORMAL --"),)?,
         Mode::Insert => execute!(stdout(), Print("-- INSERT --"))?,
-        Mode::Command => {
-            execute!(stdout(), Print("-- COMMAND -- :"), Print(&command_line))?
-        }
+        Mode::Command => execute!(stdout(), Print("-- COMMAND -- :"), Print(&command_line))?,
     }
     // カーソルの設定
     match mode {
         Mode::Normal | Mode::Insert => {
-            let line: String = query_service(
-                "buffer.line",
-                &[buffer_id.into(), cursor.row.into()],
-            )
-            .unwrap()
-            .try_into()
-            .unwrap();
+            let line: String = query_service("buffer.line", &[buffer_id.into(), cursor.row.into()])
+                .unwrap()
+                .try_into()
+                .unwrap();
             let x = line[..cursor.byte_col]
                 .chars()
                 .map(|c| c.width().unwrap_or(0) as u16)
@@ -195,9 +162,7 @@ fn render(
                 ),
             )?;
             match mode {
-                Mode::Normal => {
-                    execute!(stdout(), SetCursorStyle::SteadyBlock)?
-                }
+                Mode::Normal => execute!(stdout(), SetCursorStyle::SteadyBlock)?,
                 Mode::Insert => execute!(stdout(), SetCursorStyle::SteadyBar)?,
                 _ => unreachable!(),
             }
@@ -216,6 +181,9 @@ fn render(
         }
     }
     Ok(())
+}
+pub fn query_service(name: &str, args: &[Value]) -> anyhow::Result<Value> {
+    clm_core::registry::query_service(name, args).map_err(anyhow::Error::msg)
 }
 
 fn trim_display_range(line: &str, range_l: usize, range_r: usize) -> String {
@@ -239,8 +207,7 @@ fn trim_display_range(line: &str, range_l: usize, range_r: usize) -> String {
                     result.push(' ');
                 }
             }
-        }
-        else {
+        } else {
             if c != '\n' {
                 result.push(c);
             }
@@ -249,13 +216,10 @@ fn trim_display_range(line: &str, range_l: usize, range_r: usize) -> String {
     result
 }
 
-fn convert_key_event(
-    key_event: crossterm::event::KeyEvent,
-) -> clm_plugin_api::input::KeyEvent {
+fn convert_key_event(key_event: crossterm::event::KeyEvent) -> clm_plugin_api::input::KeyEvent {
     use clm_plugin_api::input::*;
     use crossterm::event::{
-        KeyCode as TuiKeyCode, KeyEventKind as TuiKeyState,
-        KeyModifiers as TuiModifiers,
+        KeyCode as TuiKeyCode, KeyEventKind as TuiKeyState, KeyModifiers as TuiModifiers,
     };
     KeyEvent {
         physical_key: PhysicalKey::Unknown,

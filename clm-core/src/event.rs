@@ -48,15 +48,11 @@ HashMap<配信性質, Box<dyn Fn(Option<購読性質>) -> i32>>
 
 */
 
-pub mod data;
-
 use std::collections::HashMap;
 
 use crate::editor::PluginContext;
-use crate::event::data::EventData;
 use crate::registry::{
-    RawMutServiceHandler, RawServiceHandler, Service, ServiceHandler,
-    register_service, subscribe,
+    RawMutServiceHandler, RawServiceHandler, Service, ServiceHandler, register_service, subscribe,
 };
 use crate::value::Value;
 
@@ -88,11 +84,7 @@ impl PluginRegistrar {
             },
         );
     }
-    pub fn register_mut_service(
-        &self,
-        name: &str,
-        handler: RawMutServiceHandler,
-    ) {
+    pub fn register_mut_service(&self, name: &str, handler: RawMutServiceHandler) {
         register_service(
             name,
             Service {
@@ -109,10 +101,10 @@ pub trait Plugin {
 pub struct SortKey(pub String);
 
 // イベント
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Event {
     pub kind: EventKind,
-    pub data: EventData,
+    pub data: Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,8 +122,7 @@ pub struct PluginId(pub usize);
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PropertyKey(pub String);
 
-pub type RawEventHandler =
-    unsafe fn(*mut (), &EventData, &mut dyn PluginContext) -> EventResult;
+pub type RawEventHandler = unsafe fn(*mut (), &Value, &mut dyn PluginContext) -> EventResult;
 // 購読
 pub struct Subscription {
     pub plugin_id: PluginId,

@@ -10,3 +10,4 @@ repository.workspace = true
 [dependencies]
 clm-core = { path = "../clm-core" }
 clm-macros = { path = "../clm-macros" }
+serde = { version = "1", features = ["derive"] }

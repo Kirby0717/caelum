@@ -1,7 +1,25 @@
 use quote::{format_ident, quote};
-use syn::{
-    Attribute, Expr, Ident, ImplItem, ItemImpl, LitStr, parse_macro_input,
-};
+use syn::{Attribute, DeriveInput, Expr, Ident, ImplItem, ItemImpl, LitStr, parse_macro_input};
+
+#[proc_macro_derive(ConvertValue)]
+pub fn derive_convert_value(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let derive = parse_macro_input!(item as DeriveInput);
+    let struct_name = derive.ident;
+    quote! {
+        impl ::std::convert::From<#struct_name> for ::clm_core::value::Value {
+            fn from(value: #struct_name) -> Self {
+                ::clm_core::value::to_value(&value).unwrap()
+            }
+        }
+        impl ::std::convert::TryFrom<::clm_core::value::Value> for #struct_name {
+            type Error = ::clm_core::value::Error;
+            fn try_from(value: ::clm_core::value::Value) -> Result<Self, Self::Error> {
+                ::clm_core::value::from_value(value)
+            }
+        }
+    }
+    .into()
+}
 
 struct SubscribeInfo {
     kind: String,
@@ -34,8 +52,7 @@ pub fn clm_handlers(
             let value: LitStr = meta.value()?.parse()?;
             plugin_name = Some(value.value());
             Ok(())
-        }
-        else {
+        } else {
             Err(meta.error("unsupported property"))
         }
     });
@@ -50,8 +67,7 @@ pub fn clm_handlers(
     let mut services = vec![];
 
     for item in &mut impl_block.items {
-        let ImplItem::Fn(method) = item
-        else {
+        let ImplItem::Fn(method) = item else {
             continue;
         };
 
@@ -61,12 +77,10 @@ pub fn clm_handlers(
             if attr.path().is_ident("subscribe") {
                 subscribe_attr = Some(parse_subscribe_attr(attr));
                 false
-            }
-            else if attr.path().is_ident("service") {
+            } else if attr.path().is_ident("service") {
                 service_attr = Some(parse_service_attr(attr));
                 false
-            }
-            else {
+            } else {
                 true
             }
         });
@@ -78,14 +92,12 @@ pub fn clm_handlers(
         }
 
         let sig = &method.sig;
-        let Some(receiver) = sig.receiver()
-        else {
+        let Some(receiver) = sig.receiver() else {
             panic!("invalid receiver");
         };
 
         let method_name = &sig.ident;
-        let const_name =
-            format_ident!("{}", method_name.to_string().to_uppercase());
+        let const_name = format_ident!("{}", method_name.to_string().to_uppercase());
 
         // EventHandler
         if let Some(subscribe_attr) = subscribe_attr {
@@ -93,7 +105,7 @@ pub fn clm_handlers(
                 const #const_name: ::clm_plugin_api::core::RawEventHandler = {
                     unsafe fn __raw_event_handler(
                         ptr: *mut (),
-                        data: &::clm_plugin_api::core::EventData,
+                        data: &::clm_plugin_api::core::Value,
                         ctx: &mut dyn ::clm_plugin_api::core::PluginContext
                     ) -> ::clm_plugin_api::core::EventResult {
                         (&mut *(ptr as *mut #type_name)).#method_name(data, ctx)
@@ -106,8 +118,7 @@ pub fn clm_handlers(
                     let method_name = method_name.to_string();
                     if let Some(kind) = method_name.strip_prefix("on_") {
                         kind.to_string()
-                    }
-                    else {
+                    } else {
                         method_name
                     }
                 }),
@@ -123,7 +134,7 @@ pub fn clm_handlers(
                         unsafe fn __raw_mut_service_handler(
                             ptr: *mut (),
                             args: &[::clm_plugin_api::core::Value],
-                        ) -> ::clm_plugin_api::core::Value {
+                        ) -> ::std::result::Result<::clm_plugin_api::core::Value, ::std::string::String> {
                             (&mut *(ptr as *mut #type_name)).#method_name(args)
                         }
                         __raw_mut_service_handler
@@ -137,7 +148,7 @@ pub fn clm_handlers(
                         unsafe fn __raw_service_handler(
                             ptr: *const (),
                             args: &[::clm_plugin_api::core::Value],
-                        ) -> ::clm_plugin_api::core::Value {
+                        ) -> ::std::result::Result<::clm_plugin_api::core::Value, ::std::string::String> {
                             (&*(ptr as *const #type_name)).#method_name(args)
                         }
                         __raw_service_handler
@@ -145,9 +156,9 @@ pub fn clm_handlers(
                 });
             }
             services.push(ServiceInfo {
-                name: service_attr.name.unwrap_or(
-                    plugin_name.clone() + "." + &method_name.to_string(),
-                ),
+                name: service_attr
+                    .name
+                    .unwrap_or(plugin_name.clone() + "." + &method_name.to_string()),
                 const_name,
                 mutability: receiver.mutability.is_some(),
             });
@@ -163,10 +174,15 @@ pub fn clm_handlers(
         .map(|s| {
             let kind = &s.kind;
             let const_name = &s.const_name;
-            let properties: Vec<_> = s.properties.iter()
+            let properties: Vec<_> = s
+                .properties
+                .iter()
                 .map(|(key, expr)| {
                     quote! {
-                        (::clm_plugin_api::core::PropertyKey(#key.to_string()), #expr.into())
+                        (
+                            ::clm_plugin_api::core::PropertyKey(#key.to_string()),
+                            #expr.into(),
+                        )
                     }
                 })
                 .collect();
@@ -190,8 +206,7 @@ pub fn clm_handlers(
                 quote! {
                     reg.register_mut_service(#name, Self::#const_name);
                 }
-            }
-            else {
+            } else {
                 quote! {
                     reg.register_service(#name, Self::#const_name);
                 }
@@ -219,8 +234,7 @@ fn parse_subscribe_attr(attr: &Attribute) -> SubscribeAttrData {
         if meta.path.is_ident("kind") {
             let value: LitStr = meta.value()?.parse()?;
             kind = Some(value.value());
-        }
-        else if let Some(ident) = meta.path.get_ident() {
+        } else if let Some(ident) = meta.path.get_ident() {
             let value: Expr = meta.value()?.parse()?;
             properties.push((ident.to_string(), value));
         }

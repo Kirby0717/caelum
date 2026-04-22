@@ -1,4 +1,5 @@
-pub mod core;
-pub use clm_core::input;
 pub use clm_macros::*;
+pub mod core;
+pub mod data;
+pub mod input;
 pub mod priority;
