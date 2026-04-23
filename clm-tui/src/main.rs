@@ -152,12 +152,12 @@ fn render(size: (u16, u16), view_offset: &mut (usize, usize)) -> anyhow::Result<
                 .unwrap();
             let x = line[..cursor.byte_col]
                 .chars()
-                .map(|c| c.width().unwrap_or(0) as u16)
-                .sum::<u16>();
+                .map(|c| c.width().unwrap_or(0))
+                .sum::<usize>();
             execute!(
                 stdout(),
                 MoveTo(
-                    x - view_offset.0 as u16,
+                    (x - view_offset.0) as u16,
                     (cursor.row - view_offset.1) as u16
                 ),
             )?;
@@ -168,7 +168,10 @@ fn render(size: (u16, u16), view_offset: &mut (usize, usize)) -> anyhow::Result<
             }
         }
         Mode::Command => {
-            let x = command_line
+            let cursor: usize = query_service("modal.command_line_cursor", &[])?
+                .try_into()
+                .unwrap_or_default();
+            let x = command_line[..cursor]
                 .chars()
                 .map(|c| c.width().unwrap_or(0))
                 .sum::<usize>()

@@ -181,7 +181,7 @@ pub fn clm_handlers(
                     quote! {
                         (
                             ::clm_plugin_api::core::PropertyKey(#key.to_string()),
-                            #expr.into(),
+                            (#expr).into(),
                         )
                     }
                 })

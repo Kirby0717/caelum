@@ -7,6 +7,7 @@ pub struct ModalPlugin {
     mode: Mode,
     cursor: CursorState,
     command_line: String,
+    command_line_cursor: usize,
     buffer_id: BufferId,
     key_holder: Option<LockToken>,
 }
@@ -27,6 +28,7 @@ impl ModalPlugin {
             mode,
             cursor,
             command_line,
+            command_line_cursor: 0,
             buffer_id: BufferId(id),
             key_holder: None,
         }
@@ -90,6 +92,10 @@ impl ModalPlugin {
                 panic!("{e}");
             }
         }
+        if self.mode == Mode::Command && mode != Mode::Command {
+            self.command_line_cursor = 0;
+            self.command_line.clear();
+        }
         self.mode = mode;
         self.clamp_cursor();
         emit_event(
@@ -111,36 +117,60 @@ impl ModalPlugin {
         let Ok(mv) = CursorMove::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
-        match mv {
-            CursorMove::Up { count } => {
-                let row = self.cursor.row;
-                self.cursor.row = row.saturating_sub(count);
-            }
-            CursorMove::Down { count } => {
-                self.cursor.row += count;
-            }
-            CursorMove::Left { count } => {
-                if count == 0 {
-                    return EventResult::Handled;
+        match self.mode {
+            Mode::Normal | Mode::Insert => match mv {
+                CursorMove::Up { count } => {
+                    let row = self.cursor.row;
+                    self.cursor.row = row.saturating_sub(count);
                 }
-                let line = self.line(self.cursor.row).unwrap();
-                let left = &line[..self.cursor.byte_col];
-                if let Some((i, _)) = left.char_indices().nth_back(count - 1) {
-                    self.cursor.byte_col = i;
-                } else {
-                    self.cursor.byte_col = 0;
+                CursorMove::Down { count } => {
+                    self.cursor.row += count;
                 }
-            }
-            CursorMove::Right { count } => {
-                let line = self.line(self.cursor.row).unwrap();
-                let right = &line[self.cursor.byte_col..];
-                if let Some((i, _)) = right.char_indices().nth(count) {
-                    self.cursor.byte_col += i;
-                } else {
-                    self.cursor.byte_col = line.len();
+                CursorMove::Left { count } => {
+                    if count == 0 {
+                        return EventResult::Handled;
+                    }
+                    let line = self.line(self.cursor.row).unwrap();
+                    let left = &line[..self.cursor.byte_col];
+                    if let Some((i, _)) = left.char_indices().nth_back(count - 1) {
+                        self.cursor.byte_col = i;
+                    } else {
+                        self.cursor.byte_col = 0;
+                    }
                 }
-            }
-            _ => return EventResult::Propagate,
+                CursorMove::Right { count } => {
+                    let line = self.line(self.cursor.row).unwrap();
+                    let right = &line[self.cursor.byte_col..];
+                    if let Some((i, _)) = right.char_indices().nth(count) {
+                        self.cursor.byte_col += i;
+                    } else {
+                        self.cursor.byte_col = line.len();
+                    }
+                }
+                _ => return EventResult::Propagate,
+            },
+            Mode::Command => match mv {
+                CursorMove::Left { count } => {
+                    if count == 0 {
+                        return EventResult::Handled;
+                    }
+                    let left = &self.command_line[..self.command_line_cursor];
+                    if let Some((i, _)) = left.char_indices().nth_back(count - 1) {
+                        self.command_line_cursor = i;
+                    } else {
+                        self.command_line_cursor = 0;
+                    }
+                }
+                CursorMove::Right { count } => {
+                    let right = &self.command_line[self.command_line_cursor..];
+                    if let Some((i, _)) = right.char_indices().nth(count) {
+                        self.command_line_cursor += i;
+                    } else {
+                        self.command_line_cursor = self.command_line.len();
+                    }
+                }
+                _ => return EventResult::Propagate,
+            },
         }
         self.clamp_cursor();
         EventResult::Handled
@@ -152,16 +182,6 @@ impl ModalPlugin {
         };
         let mut cursor = self.cursor;
         match edit {
-            EditAction::InsertChar(c) => {
-                emit_buffer_op(&BufferOp::Insert {
-                    buffer_id: self.buffer_id,
-                    line_idx: cursor.row,
-                    byte_col_idx: cursor.byte_col,
-                    text: c.to_string().clone(),
-                    lock_token: self.key_holder,
-                });
-                cursor.byte_col += c.len_utf8();
-            }
             EditAction::InsertText(text) => {
                 emit_buffer_op(&BufferOp::Insert {
                     buffer_id: self.buffer_id,
@@ -267,12 +287,30 @@ impl ModalPlugin {
             return EventResult::Propagate;
         };
         let command_line = &mut self.command_line;
+        let cursor = self.command_line_cursor;
         match cmd_action {
-            CommandLineAction::AddChar(c) => {
-                command_line.push(c);
+            CommandLineAction::InsertText(text) => {
+                command_line.insert_str(cursor, &text);
+                self.command_line_cursor += text.len();
             }
-            CommandLineAction::Backspace => {
-                command_line.pop();
+            CommandLineAction::DeleteCharForward => {
+                if command_line.len() < cursor {
+                    return EventResult::Propagate;
+                }
+                let next_size = command_line[cursor..].chars().next().unwrap().len_utf8();
+                command_line.drain(cursor..cursor + next_size);
+            }
+            CommandLineAction::DeleteCharBackward => {
+                if cursor == 0 {
+                    return EventResult::Propagate;
+                }
+                let prev_size = command_line[..cursor]
+                    .chars()
+                    .next_back()
+                    .unwrap()
+                    .len_utf8();
+                command_line.drain(cursor - prev_size..cursor);
+                self.command_line_cursor -= prev_size;
             }
             CommandLineAction::Execute => {
                 let parsed = command_line
@@ -282,10 +320,12 @@ impl ModalPlugin {
                 if !parsed.is_empty() {
                     execute_command(&parsed[0], &parsed[1..]);
                 }
+                self.command_line_cursor = 0;
                 command_line.clear();
                 self.mode = Mode::Normal;
             }
             CommandLineAction::Clear => {
+                self.command_line_cursor = 0;
                 command_line.clear();
             }
         }
@@ -320,6 +360,10 @@ impl ModalPlugin {
     #[service]
     fn command_line(&self, _args: &[Value]) -> Result<Value, String> {
         Ok(self.command_line.clone().into())
+    }
+    #[service]
+    fn command_line_cursor(&self, _args: &[Value]) -> Result<Value, String> {
+        Ok(self.command_line_cursor.into())
     }
     #[service]
     fn buffer_id(&self, _args: &[Value]) -> Result<Value, String> {

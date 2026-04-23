@@ -1,0 +1,56 @@
+# 将来的には
+# [context."mode == normal"]
+# のように、より詳細な設定が出来るようにする
+
+[normal]
+# 移動系
+"w" = { kind = "cursor_move", type = "up" }
+"a" = { kind = "cursor_move", type = "left" }
+"s" = { kind = "cursor_move", type = "down" }
+"d" = { kind = "cursor_move", type = "right" }
+"up" = { kind = "cursor_move", type = "up" }
+"left" = { kind = "cursor_move", type = "left" }
+"down" = { kind = "cursor_move", type = "down" }
+"right" = { kind = "cursor_move", type = "right" }
+"S-w" = { kind = "cursor_move", type = "up", count = 5 }
+#"S-a" = { kind = "cursor_move", type = "word_backward" }
+"S-a" = { kind = "cursor_move", type = "left", count = 5 }
+"S-s" = { kind = "cursor_move", type = "down", count = 5 }
+#"S-d" = { kind = "cursor_move", type = "word_forward" }
+"S-d" = { kind = "cursor_move", type = "right", count = 5 }
+#"C-a" = { kind = "cursor_move", type = "line_start" }
+#"C-d" = { kind = "cursor_move", type = "line_end" }
+
+# 編集系
+#"h h" = { kind = "edit", data = "delete_line" }
+#"space" = { kind = "edit", data = "delete_char_forward" }
+
+# モード切替
+"j" = { kind = "set_mode", data = "insert" }
+"k" = [
+  { kind = "set_mode", data = "insert" },
+  { kind = "cursor_move", type = "right" },
+]
+#"S-j" = [
+#  { kind = "edit", data = "new_line_above" },
+#  { kind = "set_mode", data = "insert" },
+#]
+
+# Undo/Redo
+"i" = { kind = "edit", data = "undo" }
+"S-i" = { kind = "edit", data = "redo" }
+
+# コマンド
+";" = { kind = "set_mode", data = "command" }
+
+[insert]
+"escape" = { kind = "set_mode", data = "normal" }
+"up" = { kind = "cursor_move", type = "up" }
+"left" = { kind = "cursor_move", type = "left" }
+"down" = { kind = "cursor_move", type = "down" }
+"right" = { kind = "cursor_move", type = "right" }
+
+[command]
+"escape" = { kind = "set_mode", data = "normal" }
+"left" = { kind = "cursor_move", type = "left" }
+"right" = { kind = "cursor_move", type = "right" }

@@ -2,7 +2,7 @@ use clm_macros::ConvertValue;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ConvertValue)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Mode {
     #[default]
     Normal,
@@ -16,7 +16,7 @@ pub struct CursorState {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValue)]
-#[serde(rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum CursorMove {
     Up {
         #[serde(default = "one")]
@@ -76,7 +76,6 @@ pub enum BufferOp {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValue)]
 #[serde(rename_all = "snake_case")]
 pub enum EditAction {
-    InsertChar(char),
     InsertText(String),
     DeleteCharForward,
     DeleteCharBackward,
@@ -90,8 +89,9 @@ pub enum EditAction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValue)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandLineAction {
-    AddChar(char),
-    Backspace,
+    InsertText(String),
+    DeleteCharForward,
+    DeleteCharBackward,
     Execute,
     Clear,
 }
