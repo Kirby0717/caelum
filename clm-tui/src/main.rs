@@ -31,7 +31,7 @@ fn main() -> anyhow::Result<()> {
 
     add_plugin(clm_buffer::BufferPlugin::new());
     add_plugin(clm_modal::ModalPlugin::new(Some(file)));
-    add_plugin(clm_motions::MotionPlugin::new());
+    add_plugin(clm_keymap::KeymapPlugin::new());
 
     enable_raw_mode()?;
     execute!(stdout(), EnterAlternateScreen)?;

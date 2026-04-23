@@ -17,4 +17,4 @@ unicode-width = "0.2"
 
 clm-buffer = { path = "../plugins/clm-buffer" }
 clm-modal = { path = "../plugins/clm-modal" }
-clm-motions = { path = "../plugins/clm-motions" }
+clm-keymap = { path = "../plugins/clm-keymap" }

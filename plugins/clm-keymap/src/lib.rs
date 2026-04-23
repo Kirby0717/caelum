@@ -266,10 +266,10 @@ fn toml_to_value(toml: toml::Value) -> Value {
 }
 
 #[derive(Debug, Default)]
-pub struct MotionPlugin {
+pub struct KeymapPlugin {
     keymap: Keymap,
 }
-impl MotionPlugin {
+impl KeymapPlugin {
     pub fn new() -> Self {
         let config_path = "./keymap.toml";
         let config_file = std::fs::read_to_string(config_path).unwrap();
@@ -277,8 +277,8 @@ impl MotionPlugin {
         Self { keymap }
     }
 }
-#[clm_plugin_api::clm_handlers(name = "motion")]
-impl MotionPlugin {
+#[clm_plugin_api::clm_handlers(name = "keymap")]
+impl KeymapPlugin {
     #[subscribe(kind = "key_input",priority = priority::DEFAULT - 1)]
     fn on_key_input_editing(&mut self, data: &Value, _ctx: &mut dyn PluginContext) -> EventResult {
         let Ok(key_event) = KeyEvent::try_from(data.clone()) else {
@@ -351,6 +351,10 @@ impl MotionPlugin {
                 Mode::Insert => "insert",
                 Mode::Command => "command",
             };
+            // TODO: 単一キーだけで無くシーケンスに対応する
+            // 子が無ければ実行
+            // 入力されたキーが子に無ければ実行＆キーをシーケンスに追加
+            // escでコマンド解除＆実行
             if let Some(trie) = self.keymap.lookup(mode, &key)
                 && let Some(binding) = &trie.binding
             {
@@ -376,7 +380,7 @@ impl MotionPlugin {
         EventResult::Handled
     }
 }
-impl Plugin for MotionPlugin {
+impl Plugin for KeymapPlugin {
     fn init(&mut self, reg: PluginRegistrar) {
         Self::register_service_and_subscribe(&reg);
     }

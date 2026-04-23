@@ -39,6 +39,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clm-keymap"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "clm-plugin-api",
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "clm-macros"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -52,15 +61,6 @@ name = "clm-modal"
 version = "0.1.0-alpha.1"
 dependencies = [
  "clm-plugin-api",
-]
-
-[[package]]
-name = "clm-motions"
-version = "0.1.0-alpha.1"
-dependencies = [
- "clm-plugin-api",
- "serde",
- "toml",
 ]
 
 [[package]]
@@ -86,8 +86,8 @@ dependencies = [
  "anyhow",
  "clm-buffer",
  "clm-core",
+ "clm-keymap",
  "clm-modal",
- "clm-motions",
  "clm-plugin-api",
  "clm-renderer",
  "crossterm",

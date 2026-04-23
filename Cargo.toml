@@ -7,7 +7,7 @@ members = [
   "clm-tui",
   "plugins/clm-buffer",
   "plugins/clm-modal",
-  "plugins/clm-motions",
+  "plugins/clm-keymap",
 ]
 resolver = "3"
 
