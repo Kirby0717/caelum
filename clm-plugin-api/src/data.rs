@@ -9,6 +9,16 @@ pub enum Mode {
     Insert,
     Command,
 }
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Mode::Normal => "normal",
+            Mode::Insert => "insert",
+            Mode::Command => "command",
+        };
+        write!(f, "{s}")
+    }
+}
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, ConvertValue)]
 pub struct CursorState {
     pub row: usize,

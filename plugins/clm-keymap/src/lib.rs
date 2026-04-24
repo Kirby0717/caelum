@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::rc::{Rc, Weak};
 
 use clm_plugin_api::core::*;
 use clm_plugin_api::data::*;
@@ -148,7 +149,7 @@ fn toml_to_event(toml: toml::Value) -> Result<Event, ParseError> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Binding {
     Event(Vec<Event>),
     Command { name: String, args: Vec<String> },
@@ -203,11 +204,11 @@ impl Binding {
 #[derive(Debug, Default)]
 struct TrieNode {
     pub binding: Option<Binding>,
-    pub children: HashMap<KeyPattern, TrieNode>,
+    pub children: HashMap<KeyPattern, Rc<TrieNode>>,
 }
 impl TrieNode {
-    fn from_toml(value: toml::Value) -> Result<Self, ParseError> {
-        let mut root = Self::default();
+    fn from_toml(value: toml::Value) -> Result<Rc<Self>, ParseError> {
+        let mut root = Rc::new(Self::default());
         if let toml::Value::Table(table) = value {
             for (key_sequence, binding) in table {
                 let key_sequence = parse_key_sequence(&key_sequence)?;
@@ -219,33 +220,58 @@ impl TrieNode {
             Err(ParseError("keymap is not table".to_string()))
         }
     }
-    fn add_binding(&mut self, key_sequence: &[KeyPattern], binding: Binding) {
+    fn add_binding(self: &mut Rc<Self>, key_sequence: &[KeyPattern], binding: Binding) {
+        let this = Rc::get_mut(self).unwrap();
         if let Some(key) = key_sequence.first() {
-            self.children
+            this.children
                 .entry(key.clone())
-                .or_default()
+                .or_insert_with(|| Rc::new(Self::default()))
                 .add_binding(&key_sequence[1..], binding);
         } else {
-            self.binding = Some(binding);
+            this.binding = Some(binding);
         }
     }
 }
 
 #[derive(Debug, Default)]
 struct Keymap {
-    pub modes: HashMap<String, TrieNode>,
+    pub modes: HashMap<String, Rc<TrieNode>>,
+    pub root: Option<Weak<TrieNode>>,
+    pub head: Option<Weak<TrieNode>>,
 }
 impl Keymap {
-    fn from_toml(table: toml::Table) -> Result<Self, ParseError> {
-        Ok(Self {
-            modes: table
-                .into_iter()
-                .map(|(mode, keymap)| Ok((mode, TrieNode::from_toml(keymap)?)))
-                .collect::<Result<_, ParseError>>()?,
-        })
+    fn new(toml_table: toml::Table, mode: &str) -> Result<Self, ParseError> {
+        let modes = toml_table
+            .into_iter()
+            .map(|(mode, keymap)| Ok((mode, TrieNode::from_toml(keymap)?)))
+            .collect::<Result<HashMap<_, _>, ParseError>>()?;
+        let root = modes.get(mode).map(Rc::downgrade);
+        let head = root.clone();
+        Ok(Self { modes, root, head })
     }
-    fn lookup(&self, mode: &str, key: &KeyPattern) -> Option<&TrieNode> {
-        self.modes.get(mode)?.children.get(key)
+    fn change_mode(&mut self, mode: &str) {
+        self.root = self.modes.get(mode).map(Rc::downgrade);
+        self.head = self.root.clone();
+    }
+    fn feed(&mut self, key: &KeyPattern) -> Option<Binding> {
+        let head = self.head.take()?.upgrade().unwrap();
+        match head.children.get(key) {
+            Some(child) => {
+                if child.children.is_empty()
+                    && let Some(binding) = &child.binding
+                {
+                    self.head = self.root.clone();
+                    Some(binding.clone())
+                } else {
+                    self.head = Some(Rc::downgrade(child));
+                    None
+                }
+            }
+            None => {
+                self.head = self.root.clone();
+                head.binding.clone()
+            }
+        }
     }
 }
 
@@ -273,7 +299,11 @@ impl KeymapPlugin {
     pub fn new() -> Self {
         let config_path = "./keymap.toml";
         let config_file = std::fs::read_to_string(config_path).unwrap();
-        let keymap = Keymap::from_toml(toml::from_str(&config_file).unwrap()).unwrap();
+        let mode: Mode = query_service("modal.mode", &[])
+            .unwrap()
+            .try_into()
+            .unwrap_or_default();
+        let keymap = Keymap::new(toml::from_str(&config_file).unwrap(), &mode.to_string()).unwrap();
         Self { keymap }
     }
 }
@@ -341,28 +371,13 @@ impl KeymapPlugin {
         let Some(key) = KeyPattern::from_key_event(&key_event) else {
             return EventResult::Propagate;
         };
-        let mode = query_service("modal.mode", &[])
-            .ok()
-            .and_then(|mode| mode.try_into().ok())
-            .unwrap_or(Mode::Normal);
         if key_event.state.is_pressed() {
-            let mode = match mode {
-                Mode::Normal => "normal",
-                Mode::Insert => "insert",
-                Mode::Command => "command",
-            };
-            // TODO: 単一キーだけで無くシーケンスに対応する
-            // 子が無ければ実行
-            // 入力されたキーが子に無ければ実行＆キーをシーケンスに追加
-            // escでコマンド解除＆実行
-            if let Some(trie) = self.keymap.lookup(mode, &key)
-                && let Some(binding) = &trie.binding
-            {
+            if let Some(binding) = self.keymap.feed(&key) {
                 match binding {
                     Binding::Event(events) => {
                         for event in events {
                             emit_event(
-                                event.clone(),
+                                event,
                                 DispatchDescriptor::Consumable(vec![SortKey(
                                     "priority".to_string(),
                                 )]),
@@ -370,13 +385,21 @@ impl KeymapPlugin {
                         }
                     }
                     Binding::Command { name, args } => {
-                        execute_command(name, args);
+                        execute_command(&name, &args);
                     }
                 }
             } else {
                 return EventResult::Propagate;
             }
         }
+        EventResult::Handled
+    }
+    #[subscribe(priority = priority::DEFAULT)]
+    fn on_mode_changed(&mut self, data: &Value, _ctx: &mut dyn PluginContext) -> EventResult {
+        let Ok(mode) = Mode::try_from(data.clone()) else {
+            return EventResult::Propagate;
+        };
+        self.keymap.change_mode(&mode.to_string());
         EventResult::Handled
     }
 }
