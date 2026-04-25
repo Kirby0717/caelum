@@ -1,5 +1,5 @@
 [package]
-name = "clm-tui"
+name = "caelum"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,12 +9,9 @@ repository.workspace = true
 
 [dependencies]
 clm-core = { path = "../clm-core" }
-clm-plugin-api = { path = "../clm-plugin-api" }
-clm-renderer = { path = "../clm-renderer" }
 anyhow = "1"
-crossterm = "0.29"
-unicode-width = "0.2"
 
 clm-buffer = { path = "../plugins/clm-buffer" }
 clm-modal = { path = "../plugins/clm-modal" }
 clm-keymap = { path = "../plugins/clm-keymap" }
+clm-tui = { path = "../plugins/clm-tui" }

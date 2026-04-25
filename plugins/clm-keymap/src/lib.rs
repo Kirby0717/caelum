@@ -310,7 +310,7 @@ impl KeymapPlugin {
 #[clm_plugin_api::clm_handlers(name = "keymap")]
 impl KeymapPlugin {
     #[subscribe(kind = "key_input",priority = priority::DEFAULT - 1)]
-    fn on_key_input_editing(&mut self, data: &Value, _ctx: &mut dyn PluginContext) -> EventResult {
+    fn on_key_input_editing(&mut self, data: &Value) -> EventResult {
         let Ok(key_event) = KeyEvent::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
@@ -364,7 +364,7 @@ impl KeymapPlugin {
         EventResult::Handled
     }
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_key_input(&mut self, data: &Value, _ctx: &mut dyn PluginContext) -> EventResult {
+    fn on_key_input(&mut self, data: &Value) -> EventResult {
         let Ok(key_event) = KeyEvent::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
@@ -395,7 +395,7 @@ impl KeymapPlugin {
         EventResult::Handled
     }
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_mode_changed(&mut self, data: &Value, _ctx: &mut dyn PluginContext) -> EventResult {
+    fn on_mode_changed(&mut self, data: &Value) -> EventResult {
         let Ok(mode) = Mode::try_from(data.clone()) else {
             return EventResult::Propagate;
         };

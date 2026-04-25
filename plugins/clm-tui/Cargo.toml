@@ -1,5 +1,5 @@
 [package]
-name = "clm-renderer"
+name = "clm-tui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,4 +8,7 @@ description.workspace = true
 repository.workspace = true
 
 [dependencies]
-clm-core = { path = "../clm-core" }
+anyhow = "1.0.102"
+clm-plugin-api = { path = "../../clm-plugin-api" }
+crossterm = "0.29"
+unicode-width = "0.2"

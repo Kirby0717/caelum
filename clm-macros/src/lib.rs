@@ -106,9 +106,8 @@ pub fn clm_handlers(
                     unsafe fn __raw_event_handler(
                         ptr: *mut (),
                         data: &::clm_plugin_api::core::Value,
-                        ctx: &mut dyn ::clm_plugin_api::core::PluginContext
                     ) -> ::clm_plugin_api::core::EventResult {
-                        (&mut *(ptr as *mut #type_name)).#method_name(data, ctx)
+                        (&mut *(ptr as *mut #type_name)).#method_name(data)
                     }
                     __raw_event_handler
                 };

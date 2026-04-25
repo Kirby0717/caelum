@@ -1,13 +1,13 @@
 [workspace]
 members = [
+  "caelum",
   "clm-core",
   "clm-macros",
   "clm-plugin-api",
-  "clm-renderer",
-  "clm-tui",
   "plugins/clm-buffer",
   "plugins/clm-modal",
   "plugins/clm-keymap",
+  "plugins/clm-tui",
 ]
 resolver = "3"
 

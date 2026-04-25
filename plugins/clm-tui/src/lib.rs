@@ -1,79 +1,89 @@
 use std::io::stdout;
 
-use clm_core::editor::EditorState;
-use clm_core::event::{DispatchDescriptor, Event as ClmEvent, EventKind, PropertyKey, SortKey};
-use clm_core::registry::{Resolver, add_plugin, dispatch_next, emit_event, register_resolver};
-use clm_core::value::Value;
+use clm_plugin_api::core::*;
 use clm_plugin_api::data::*;
+use clm_plugin_api::priority;
 use crossterm::cursor::{MoveTo, SetCursorStyle};
 use crossterm::execute;
 use crossterm::style::Print;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use unicode_width::UnicodeWidthChar;
 
-fn main() -> anyhow::Result<()> {
-    //let file = "E:/Word/言語学Aポスター/data/all8.txt";
-    let file = "./deny.toml";
-    let mut state = EditorState::new();
-
-    register_resolver(
-        SortKey("priority".to_string()),
-        PropertyKey("priority".to_string()),
-        Box::new(|priority: Option<&Value>| {
-            let Some(Value::Int(priority)) = priority else {
-                return i64::MIN;
-            };
-            *priority
-        }) as Resolver,
-    );
-
-    add_plugin(clm_buffer::BufferPlugin::new());
-    add_plugin(clm_modal::ModalPlugin::new(Some(file)));
-    add_plugin(clm_keymap::KeymapPlugin::new());
-
-    enable_raw_mode()?;
-    execute!(stdout(), EnterAlternateScreen)?;
-
-    let mut size = crossterm::terminal::size()?;
-    let mut view_offset = (0, 0);
-
-    loop {
-        use crossterm::event::{Event, read};
-        match read()? {
-            Event::Key(key_event) => {
-                emit_event(
-                    ClmEvent {
-                        kind: EventKind("key_input".to_string()),
-                        data: convert_key_event(key_event).into(),
-                    },
-                    DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-                );
-            }
-            Event::Resize(width, height) => {
-                size = (width, height);
-            }
-            _ => {}
-        }
-
-        while dispatch_next(&mut state) {}
-
-        render(size, &mut view_offset)?;
-
-        if !state.running {
-            break;
-        }
+#[derive(Debug, Default)]
+pub struct TuiPlugin {
+    view_offset: (usize, usize),
+}
+impl TuiPlugin {
+    pub fn new() -> Self {
+        Self::default()
     }
-
-    disable_raw_mode()?;
-    execute!(stdout(), LeaveAlternateScreen)?;
-    Ok(())
+}
+#[clm_plugin_api::clm_handlers(name = "tui")]
+impl TuiPlugin {
+    #[subscribe(priority = priority::DEFAULT)]
+    fn on_render(&mut self, _data: &Value) -> EventResult {
+        render(&mut self.view_offset).unwrap();
+        EventResult::Handled
+    }
 }
 
-fn render(size: (u16, u16), view_offset: &mut (usize, usize)) -> anyhow::Result<()> {
+impl Plugin for TuiPlugin {
+    fn init(&mut self, reg: clm_plugin_api::core::PluginRegistrar) {
+        Self::register_service_and_subscribe(&reg);
+
+        spawn_async(async {
+            use crossterm::event::{Event as TuiEvent, read};
+
+            loop {
+                let Ok(event) = read() else {
+                    emit_event_async(
+                        Event {
+                            kind: EventKind("quit".to_string()),
+                            data: Value::Null,
+                        },
+                        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+                    );
+                    return;
+                };
+                match event {
+                    TuiEvent::Key(key_event) => {
+                        emit_event_async(
+                            Event {
+                                kind: EventKind("key_input".to_string()),
+                                data: convert_key_event(key_event).into(),
+                            },
+                            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        enable_raw_mode().unwrap();
+        execute!(stdout(), EnterAlternateScreen).unwrap();
+
+        emit_event(
+            Event {
+                kind: EventKind("render".to_string()),
+                data: Value::Null,
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
+    }
+    fn uninit(&mut self) {
+        disable_raw_mode().unwrap();
+        execute!(stdout(), LeaveAlternateScreen).unwrap();
+    }
+}
+
+fn render(view_offset: &mut (usize, usize)) -> anyhow::Result<()> {
     use crossterm::terminal::{Clear, ClearType};
+    use unicode_width::UnicodeWidthStr;
+
     execute!(stdout(), Clear(ClearType::All))?;
+    let size = crossterm::terminal::size()?;
     let mode: Mode = query_service("modal.mode", &[])?.try_into().unwrap();
     let cursor: CursorState = query_service("modal.cursor", &[])?
         .try_into()
@@ -96,15 +106,8 @@ fn render(size: (u16, u16), view_offset: &mut (usize, usize)) -> anyhow::Result<
             .unwrap()
             .try_into()
             .unwrap();
-        let display_col_l = line[..cursor.byte_col]
-            .chars()
-            .map(|c| c.width().unwrap_or(0))
-            .sum::<usize>();
-        let display_col_r = display_col_l
-            + line[cursor.byte_col..]
-                .chars()
-                .next()
-                .map_or(1, |c| c.width().unwrap_or(0));
+        let display_col_l = line[..cursor.byte_col].width();
+        let display_col_r = display_col_l + line[cursor.byte_col..].width();
         if display_col_l < view_offset.0 {
             view_offset.0 = display_col_l;
         }
@@ -150,10 +153,7 @@ fn render(size: (u16, u16), view_offset: &mut (usize, usize)) -> anyhow::Result<
                 .unwrap()
                 .try_into()
                 .unwrap();
-            let x = line[..cursor.byte_col]
-                .chars()
-                .map(|c| c.width().unwrap_or(0))
-                .sum::<usize>();
+            let x = line[..cursor.byte_col].width();
             execute!(
                 stdout(),
                 MoveTo(
@@ -171,11 +171,8 @@ fn render(size: (u16, u16), view_offset: &mut (usize, usize)) -> anyhow::Result<
             let cursor: usize = query_service("modal.command_line_cursor", &[])?
                 .try_into()
                 .unwrap_or_default();
-            let x = command_line[..cursor]
-                .chars()
-                .map(|c| c.width().unwrap_or(0))
-                .sum::<usize>()
-                + "-- COMMAND -- :".len();
+            let x = "-- COMMAND -- :".width() + command_line[..cursor].width();
+
             execute!(
                 stdout(),
                 MoveTo(x as u16, size.1 - 1),
@@ -184,9 +181,6 @@ fn render(size: (u16, u16), view_offset: &mut (usize, usize)) -> anyhow::Result<
         }
     }
     Ok(())
-}
-pub fn query_service(name: &str, args: &[Value]) -> anyhow::Result<Value> {
-    clm_core::registry::query_service(name, args).map_err(anyhow::Error::msg)
 }
 
 fn trim_display_range(line: &str, range_l: usize, range_r: usize) -> String {
@@ -217,6 +211,10 @@ fn trim_display_range(line: &str, range_l: usize, range_r: usize) -> String {
         }
     }
     result
+}
+
+fn query_service(name: &str, args: &[Value]) -> anyhow::Result<Value> {
+    clm_plugin_api::core::query_service(name, args).map_err(anyhow::Error::msg)
 }
 
 fn convert_key_event(key_event: crossterm::event::KeyEvent) -> clm_plugin_api::input::KeyEvent {

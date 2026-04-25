@@ -1,12 +1,13 @@
-pub use clm_core::editor::PluginContext;
 pub use clm_core::event::{
     DispatchDescriptor, Event, EventKind, EventResult, Plugin, PluginId, PluginRegistrar,
     PropertyKey, RawEventHandler, SortKey, Subscription,
 };
 pub use clm_core::registry::{
-    RawMutServiceHandler, RawServiceHandler, Service, add_plugin, emit_event, execute_command,
-    query_service, register_command, register_resolver,
+    RawMutServiceHandler, RawServiceHandler, Resolver, Service, add_plugin, dispatch_next,
+    emit_event, execute_command, park_until_event, query_service, quit, register_command,
+    register_resolver,
 };
+pub use clm_core::runtime::{emit_event_async, init_async_runtime, sleep, spawn_async};
 pub use clm_core::value::{Value, from_value, to_value};
 
 use crate::data::*;

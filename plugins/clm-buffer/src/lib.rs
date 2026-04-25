@@ -237,7 +237,7 @@ impl BufferPlugin {
             .into())
     }
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_buffer_op(&mut self, data: &Value, _ctx: &mut dyn PluginContext) -> EventResult {
+    fn on_buffer_op(&mut self, data: &Value) -> EventResult {
         let Ok(buffer_op) = BufferOp::try_from(data.clone()) else {
             return EventResult::Propagate;
         };

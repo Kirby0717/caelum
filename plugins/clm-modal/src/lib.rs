@@ -71,7 +71,7 @@ impl ModalPlugin {
 #[clm_plugin_api::clm_handlers(name = "modal")]
 impl ModalPlugin {
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_set_mode(&mut self, data: &Value, _ctx: &mut dyn PluginContext) -> EventResult {
+    fn on_set_mode(&mut self, data: &Value) -> EventResult {
         let Ok(mode) = from_value::<Mode>(data.clone()) else {
             return EventResult::Propagate;
         };
@@ -105,15 +105,22 @@ impl ModalPlugin {
             },
             DispatchDescriptor::Broadcast,
         );
+        emit_event(
+            Event {
+                kind: EventKind("render".to_string()),
+                data: Value::Null,
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
         EventResult::Handled
     }
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_quit(&mut self, _data: &Value, ctx: &mut dyn PluginContext) -> EventResult {
-        ctx.quit();
+    fn on_quit(&mut self, _data: &Value) -> EventResult {
+        quit();
         EventResult::Handled
     }
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_cursor_move(&mut self, data: &Value, _ctx: &mut dyn PluginContext) -> EventResult {
+    fn on_cursor_move(&mut self, data: &Value) -> EventResult {
         let Ok(mv) = CursorMove::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
@@ -173,10 +180,17 @@ impl ModalPlugin {
             },
         }
         self.clamp_cursor();
+        emit_event(
+            Event {
+                kind: EventKind("render".to_string()),
+                data: Value::Null,
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
         EventResult::Handled
     }
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_edit(&mut self, data: &Value, _ctx: &mut dyn PluginContext) -> EventResult {
+    fn on_edit(&mut self, data: &Value) -> EventResult {
         let Ok(edit) = EditAction::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
@@ -275,14 +289,17 @@ impl ModalPlugin {
             _ => return EventResult::Propagate,
         }
         self.cursor = cursor;
+        emit_event(
+            Event {
+                kind: EventKind("render".to_string()),
+                data: Value::Null,
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
         EventResult::Handled
     }
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_command_line_action(
-        &mut self,
-        data: &Value,
-        _ctx: &mut dyn PluginContext,
-    ) -> EventResult {
+    fn on_command_line_action(&mut self, data: &Value) -> EventResult {
         let Ok(cmd_action) = CommandLineAction::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
@@ -329,20 +346,34 @@ impl ModalPlugin {
                 command_line.clear();
             }
         }
+        emit_event(
+            Event {
+                kind: EventKind("render".to_string()),
+                data: Value::Null,
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
         EventResult::Handled
     }
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_switch_buffer(&mut self, data: &Value, _ctx: &mut dyn PluginContext) -> EventResult {
+    fn on_switch_buffer(&mut self, data: &Value) -> EventResult {
         let Ok(buffer_id) = BufferId::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
         self.buffer_id = buffer_id;
         self.cursor = CursorState::default();
         self.clamp_cursor();
+        emit_event(
+            Event {
+                kind: EventKind("render".to_string()),
+                data: Value::Null,
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
         EventResult::Handled
     }
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_buffer_changed(&mut self, data: &Value, _ctx: &mut dyn PluginContext) -> EventResult {
+    fn on_buffer_changed(&mut self, data: &Value) -> EventResult {
         let Ok(_buffer_change) = BufferChange::try_from(data.clone()) else {
             return EventResult::Propagate;
         };

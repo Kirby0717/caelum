@@ -1,11 +1,14 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::AtomicBool;
 
-use crate::editor::PluginContext;
+use event_listener::Listener;
+
 use crate::event::{
     DispatchDescriptor, Event, EventResult, Plugin, PluginId, PluginRegistrar, PropertyKey,
     RawEventHandler, SortKey, Subscription, SubscriptionId,
 };
+use crate::runtime::async_runtime;
 use crate::value::Value;
 
 pub type Resolver = Box<dyn Fn(Option<&Value>) -> i64>;
@@ -31,6 +34,21 @@ thread_local! {
     static COMMAND_QUEUE: RefCell<VecDeque<(String, Vec<String>)>> = const { RefCell::new(VecDeque::new()) };
     static COMMANDS: RefCell<HashMap<String, Command>> = RefCell::new(HashMap::new());
     static SERVICES: RefCell<HashMap<String, Service>> = RefCell::new(HashMap::new());
+}
+
+static RUNNING: AtomicBool = AtomicBool::new(true);
+pub fn quit() {
+    RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+pub fn is_running() -> bool {
+    RUNNING.load(std::sync::atomic::Ordering::SeqCst)
+}
+pub fn uninit_plugins() {
+    PLUGINS.with_borrow_mut(|plugins| {
+        for plugin in plugins {
+            plugin.borrow_mut().uninit();
+        }
+    });
 }
 
 pub fn add_plugin(mut plugin: impl Plugin + 'static) -> PluginId {
@@ -99,10 +117,20 @@ fn pop_event() -> Option<(Event, DispatchDescriptor)> {
 fn pop_command() -> Option<(String, Vec<String>)> {
     COMMAND_QUEUE.with_borrow_mut(|queue| queue.pop_front())
 }
-pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
+pub fn dispatch_next() -> bool {
+    // 非同期タスクからのイベントをキューに追加
+    EVENT_QUEUE.with_borrow_mut(|queue| {
+        let runtime = async_runtime();
+        while let Ok((event, descriptor)) = runtime.rx.try_recv() {
+            queue.push_back((event, descriptor));
+        }
+    });
+
     let Some((event, descriptor)) = pop_event() else {
         return false;
     };
+
+    // 配信
     match descriptor {
         // 消費型
         DispatchDescriptor::Consumable(sort_keys) => {
@@ -141,7 +169,7 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
                                 .and_then(|plugin| plugin.try_borrow_mut().ok());
                             if let Some(mut plugin) = plugin {
                                 // イベントハンドラーの実行
-                                call_event_handler(handler, plugin.as_mut(), &event.data, ctx)
+                                call_event_handler(handler, plugin.as_mut(), &event.data)
                             } else {
                                 EventResult::Propagate
                             }
@@ -169,12 +197,7 @@ pub fn dispatch_next(ctx: &mut dyn PluginContext) -> bool {
                             .and_then(|plugin| plugin.try_borrow_mut().ok());
                         if let Some(mut plugin) = plugin {
                             // イベントハンドラーの実行
-                            call_event_handler(
-                                subscription.handler,
-                                plugin.as_mut(),
-                                &event.data,
-                                ctx,
-                            );
+                            call_event_handler(subscription.handler, plugin.as_mut(), &event.data);
                         }
                     });
                 }
@@ -202,9 +225,8 @@ fn call_event_handler(
     handler: RawEventHandler,
     plugin: &mut dyn Plugin,
     data: &Value,
-    ctx: &mut dyn PluginContext,
 ) -> EventResult {
-    unsafe { handler(plugin as *mut dyn Plugin as *mut (), data, ctx) }
+    unsafe { handler(plugin as *mut dyn Plugin as *mut (), data) }
 }
 fn call_service_handler(
     handler: RawServiceHandler,
@@ -219,4 +241,13 @@ fn call_mut_service_handler(
     args: &[Value],
 ) -> Result<Value, String> {
     unsafe { handler(plugin as *mut dyn Plugin as *mut (), args) }
+}
+
+pub fn park_until_event() {
+    let runtime = async_runtime();
+    let listener = runtime.notify.listen();
+    if EVENT_QUEUE.with_borrow(|q| !q.is_empty()) {
+        return;
+    }
+    listener.wait();
 }
