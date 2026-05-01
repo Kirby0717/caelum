@@ -34,9 +34,37 @@ pub enum LayoutNode {
 pub struct Cell {
     ch: char,
 }*/
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
+pub enum CursorStyle {
+    DefaultUserShape,
+    BlinkingBlock,
+    SteadyBlock,
+    BlinkingUnderScore,
+    SteadyUnderScore,
+    BlinkingBar,
+    SteadyBar,
+}
+impl From<CursorStyle> for crossterm::cursor::SetCursorStyle {
+    fn from(value: CursorStyle) -> Self {
+        use CursorStyle::*;
+        match value {
+            DefaultUserShape => Self::DefaultUserShape,
+            BlinkingBlock => Self::BlinkingBlock,
+            SteadyBlock => Self::SteadyBlock,
+            BlinkingUnderScore => Self::BlinkingUnderScore,
+            SteadyUnderScore => Self::SteadyUnderScore,
+            BlinkingBar => Self::BlinkingBar,
+            SteadyBar => Self::SteadyBar,
+        }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize, ConvertValue)]
 pub enum DrawCommand {
     CellGrid(Vec<String>),
+    SetCursor {
+        position: (u16, u16),
+        style: CursorStyle,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -52,21 +80,20 @@ impl EditorTuiPlugin {
 impl EditorTuiPlugin {
     #[subscribe(priority = priority::DEFAULT)]
     fn on_render(&mut self, _data: &Value) -> EventResult {
-        /*let Ok(terminal_size) = crossterm::terminal::size() else {
+        let Ok(terminal_size) = crossterm::terminal::size() else {
             return EventResult::Handled;
         };
-        let Ok(command) = query_service(
+        let pane_size = (terminal_size.0, terminal_size.1 - 1);
+        let Ok(commands) = query_service(
             "render_pane",
-            &[
-                PaneId(0).into(),
-                terminal_size.0.into(),
-                terminal_size.1.into(),
-            ],
+            &[PaneId(0).into(), pane_size.0.into(), pane_size.1.into()],
         ) else {
             return EventResult::Handled;
-        };*/
-        render(&mut self.view_offset).unwrap();
-        //panic!("{command:?}");
+        };
+        let Ok(commands) = commands.try_into() else {
+            return EventResult::Handled;
+        };
+        draw((0, 0), pane_size, commands).unwrap();
         EventResult::Handled
     }
 }
@@ -78,6 +105,44 @@ impl Plugin for EditorTuiPlugin {
 
 fn query_service_anyhow(name: &str, args: &[Value]) -> anyhow::Result<Value> {
     query_service(name, args).map_err(anyhow::Error::msg)
+}
+
+fn draw(
+    offset: (u16, u16),
+    pane_size: (u16, u16),
+    commands: Vec<DrawCommand>,
+) -> std::io::Result<()> {
+    use std::io::stdout;
+
+    use crossterm::cursor::{MoveTo, RestorePosition, SavePosition, SetCursorStyle};
+    use crossterm::execute;
+    use crossterm::style::Print;
+    use crossterm::terminal::{Clear, ClearType};
+
+    execute!(stdout(), Clear(ClearType::All))?;
+    for command in commands {
+        match command {
+            DrawCommand::CellGrid(grid) => {
+                execute!(stdout(), SavePosition)?;
+                for (y, mut line) in grid.into_iter().enumerate() {
+                    use unicode_width::UnicodeWidthStr;
+                    while (pane_size.0 as usize) < line.width() {
+                        line.pop();
+                    }
+                    execute!(stdout(), MoveTo(0, offset.1 + y as u16), Print(line))?;
+                }
+                execute!(stdout(), RestorePosition)?;
+            }
+            DrawCommand::SetCursor { position, style } => {
+                execute!(
+                    stdout(),
+                    MoveTo(position.0, position.1),
+                    SetCursorStyle::from(style)
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn render(view_offset: &mut (usize, usize)) -> anyhow::Result<()> {

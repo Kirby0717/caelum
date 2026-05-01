@@ -386,9 +386,9 @@ impl ModalPlugin {
     fn render_pane(&mut self, args: &[Value]) -> Result<Value, String> {
         use clm_editor_tui::*;
         let pane_id: PaneId = get_arg(args, 0)?;
-        let w: usize = get_arg(args, 1)?;
-        let h: usize = get_arg(args, 2)?;
-        Ok(render(&mut self.view_offset, w, h).unwrap().into())
+        let w: u16 = get_arg(args, 1)?;
+        let h: u16 = get_arg(args, 2)?;
+        Ok(self.render((w, h)).unwrap().into())
     }
     #[service]
     fn mode(&self, _args: &[Value]) -> Result<Value, String> {
@@ -409,6 +409,91 @@ impl ModalPlugin {
     #[service]
     fn buffer_id(&self, _args: &[Value]) -> Result<Value, String> {
         Ok(self.buffer_id.into())
+    }
+}
+impl ModalPlugin {
+    fn render(&mut self, size: (u16, u16)) -> anyhow::Result<Vec<clm_editor_tui::DrawCommand>> {
+        use clm_editor_tui::*;
+        use unicode_width::UnicodeWidthStr;
+
+        let size = (size.0 as usize, size.1 as usize);
+        let mut commands = vec![];
+
+        let mode = self.mode;
+        let cursor = self.cursor;
+        let buffer_id = self.buffer_id;
+        let view_offset = &mut self.view_offset;
+        let cursor_line: String =
+            query_service_anyhow("buffer.line", &[buffer_id.into(), cursor.row.into()])
+                .unwrap()
+                .try_into()
+                .unwrap();
+
+        // オフセットの計算
+        {
+            if cursor.row < view_offset.1 {
+                view_offset.1 = cursor.row;
+            }
+            if view_offset.1 + size.1 <= cursor.row {
+                view_offset.1 = cursor.row - (size.1 - 1);
+            }
+            let display_col_l = cursor_line[..cursor.byte_col].width();
+            let display_col_r = display_col_l + cursor_line[cursor.byte_col..].width();
+            if display_col_l <= view_offset.0 {
+                view_offset.0 = display_col_l;
+            }
+            if view_offset.0 + size.0 <= display_col_r {
+                view_offset.0 = display_col_r - size.0;
+            }
+        }
+
+        // バッファーの表示
+        let mut cell_grid = vec![];
+        for row in 0..size.1 {
+            let line: Option<String> = query_service_anyhow(
+                "buffer.line",
+                &[buffer_id.into(), (view_offset.1 + row).into()],
+            )
+            .unwrap()
+            .try_into()
+            .unwrap();
+            if let Some(line) = line {
+                cell_grid.push(trim_display_range(
+                    &line,
+                    view_offset.0,
+                    view_offset.0 + size.0,
+                ));
+            } else {
+                break;
+            }
+        }
+        commands.push(DrawCommand::CellGrid(cell_grid));
+        // ステータスラインの設定
+        /*execute!(stdout(), MoveTo(0, size.1 - 1))?;
+        match mode {
+            Mode::Normal => execute!(stdout(), Print("-- NORMAL --"),)?,
+            Mode::Insert => execute!(stdout(), Print("-- INSERT --"))?,
+            Mode::Command => execute!(stdout(), Print("-- COMMAND -- :"), Print(&command_line))?,
+        }*/
+        // カーソルの設定
+        match mode {
+            Mode::Normal | Mode::Insert => {
+                let x = cursor_line[..cursor.byte_col].width();
+                commands.push(DrawCommand::SetCursor {
+                    position: (
+                        (x - view_offset.0) as u16,
+                        (cursor.row - view_offset.1) as u16,
+                    ),
+                    style: match mode {
+                        Mode::Normal => CursorStyle::SteadyBlock,
+                        Mode::Insert => CursorStyle::SteadyBar,
+                        _ => unreachable!(),
+                    },
+                });
+            }
+            _ => {}
+        }
+        Ok(commands)
     }
 }
 
@@ -508,107 +593,6 @@ impl Plugin for ModalPlugin {
 
 fn query_service_anyhow(name: &str, args: &[Value]) -> anyhow::Result<Value> {
     query_service(name, args).map_err(anyhow::Error::msg)
-}
-fn render(
-    view_offset: &mut (usize, usize),
-    width: usize,
-    height: usize,
-) -> anyhow::Result<Vec<clm_editor_tui::DrawCommand>> {
-    use clm_editor_tui::*;
-    use unicode_width::UnicodeWidthStr;
-
-    let mode: Mode = query_service_anyhow("modal.mode", &[])?.try_into().unwrap();
-    let cursor: CursorState = query_service_anyhow("modal.cursor", &[])?
-        .try_into()
-        .unwrap_or_default();
-    let buffer_id: BufferId = query_service_anyhow("modal.buffer_id", &[])?
-        .try_into()
-        .unwrap();
-    let command_line: String = query_service_anyhow("modal.command_line", &[])?
-        .try_into()
-        .unwrap_or_default();
-    let cursor_line: String =
-        query_service_anyhow("buffer.line", &[buffer_id.into(), cursor.row.into()])
-            .unwrap()
-            .try_into()
-            .unwrap();
-
-    // オフセットの計算
-    {
-        if cursor.row < view_offset.1 {
-            view_offset.1 = cursor.row;
-        }
-        if view_offset.1 + height <= cursor.row {
-            view_offset.1 = cursor.row - (height - 1);
-        }
-        let display_col_l = cursor_line[..cursor.byte_col].width();
-        let display_col_r = display_col_l + cursor_line[cursor.byte_col..].width();
-        if display_col_l <= view_offset.0 {
-            view_offset.0 = display_col_l;
-        }
-        if view_offset.0 + width <= display_col_r {
-            view_offset.0 = display_col_r - width;
-        }
-    }
-
-    // バッファーの表示
-    let mut cell_grid = vec![];
-    for row in 0..height {
-        let line: Option<String> = query_service_anyhow(
-            "buffer.line",
-            &[buffer_id.into(), (view_offset.1 + row as usize).into()],
-        )
-        .unwrap()
-        .try_into()
-        .unwrap();
-        if let Some(line) = line {
-            cell_grid.push(trim_display_range(
-                &line,
-                view_offset.0,
-                view_offset.0 + width,
-            ));
-        } else {
-            break;
-        }
-    }
-    // ステータスラインの設定
-    /*execute!(stdout(), MoveTo(0, size.1 - 1))?;
-    match mode {
-        Mode::Normal => execute!(stdout(), Print("-- NORMAL --"),)?,
-        Mode::Insert => execute!(stdout(), Print("-- INSERT --"))?,
-        Mode::Command => execute!(stdout(), Print("-- COMMAND -- :"), Print(&command_line))?,
-    }*/
-    // カーソルの設定
-    match mode {
-        Mode::Normal | Mode::Insert => {
-            let x = cursor_line[..cursor.byte_col].width();
-            /*execute!(
-                stdout(),
-                MoveTo(
-                    (x - view_offset.0) as u16,
-                    (cursor.row - view_offset.1) as u16
-                ),
-            )?;
-            match mode {
-                Mode::Normal => execute!(stdout(), SetCursorStyle::SteadyBlock)?,
-                Mode::Insert => execute!(stdout(), SetCursorStyle::SteadyBar)?,
-                _ => unreachable!(),
-            }*/
-        }
-        Mode::Command => {
-            let cursor: usize = query_service_anyhow("modal.command_line_cursor", &[])?
-                .try_into()
-                .unwrap_or_default();
-            let x = "-- COMMAND -- :".width() + command_line[..cursor].width();
-
-            /*execute!(
-                stdout(),
-                MoveTo(x as u16, size.1 - 1),
-                SetCursorStyle::SteadyBar
-            )?;*/
-        }
-    }
-    Ok(vec![DrawCommand::CellGrid(cell_grid)])
 }
 
 fn trim_display_range(line: &str, range_l: usize, range_r: usize) -> String {

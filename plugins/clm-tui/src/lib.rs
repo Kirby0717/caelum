@@ -1,8 +1,6 @@
 use std::io::stdout;
 
 use clm_plugin_api::core::*;
-use clm_plugin_api::data::*;
-use clm_plugin_api::priority;
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -14,13 +12,6 @@ impl TuiPlugin {
     pub fn new() -> Self {
         Self::default()
     }
-}
-#[clm_plugin_api::clm_handlers(name = "editor-tui")]
-impl TuiPlugin {
-    /*#[service(name = "render_pane")]
-    fn render_pane(&mut self, args: &[Value]) -> Result<Value, String> {
-        Ok(Value::Null)
-    }*/
 }
 impl Plugin for TuiPlugin {
     fn init(&mut self, _reg: clm_plugin_api::core::PluginRegistrar) {

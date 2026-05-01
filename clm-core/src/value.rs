@@ -34,6 +34,11 @@ impl ser::Serialize for Value {
 
 #[derive(Debug)]
 pub struct ValueConvertError(String);
+impl From<std::num::TryFromIntError> for ValueConvertError {
+    fn from(value: std::num::TryFromIntError) -> Self {
+        Self(value.to_string())
+    }
+}
 impl std::fmt::Display for ValueConvertError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
@@ -690,172 +695,172 @@ where
 }
 
 impl TryFrom<Value> for () {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if Value::Null == value {
             Ok(())
         } else {
-            Err("expected null".to_string())
+            Err(ValueConvertError("expected null".to_string()))
         }
     }
 }
 impl TryFrom<Value> for bool {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Bool(value) = value {
             Ok(value)
         } else {
-            Err("expected bool".to_string())
+            Err(ValueConvertError("expected bool".to_string()))
         }
     }
 }
 impl TryFrom<Value> for i8 {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Int(value) = value {
-            Self::try_from(value).map_err(|e| e.to_string())
+            Ok(Self::try_from(value)?)
         } else {
-            Err("expected int".to_string())
+            Err(ValueConvertError("expected int".to_string()))
         }
     }
 }
 impl TryFrom<Value> for i16 {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Int(value) = value {
-            Self::try_from(value).map_err(|e| e.to_string())
+            Ok(Self::try_from(value)?)
         } else {
-            Err("expected int".to_string())
+            Err(ValueConvertError("expected int".to_string()))
         }
     }
 }
 impl TryFrom<Value> for i32 {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Int(value) = value {
-            Self::try_from(value).map_err(|e| e.to_string())
+            Ok(Self::try_from(value)?)
         } else {
-            Err("expected int".to_string())
+            Err(ValueConvertError("expected int".to_string()))
         }
     }
 }
 impl TryFrom<Value> for i64 {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Int(value) = value {
             Ok(value)
         } else {
-            Err("expected int".to_string())
+            Err(ValueConvertError("expected int".to_string()))
         }
     }
 }
 impl TryFrom<Value> for isize {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Int(value) = value {
-            Self::try_from(value).map_err(|e| e.to_string())
+            Ok(Self::try_from(value)?)
         } else {
-            Err("expected int".to_string())
+            Err(ValueConvertError("expected int".to_string()))
         }
     }
 }
 impl TryFrom<Value> for u8 {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Uint(value) = value {
-            Self::try_from(value).map_err(|e| e.to_string())
+            Ok(Self::try_from(value)?)
         } else {
-            Err("expected uint".to_string())
+            Err(ValueConvertError("expected uint".to_string()))
         }
     }
 }
 impl TryFrom<Value> for u16 {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Uint(value) = value {
-            Self::try_from(value).map_err(|e| e.to_string())
+            Ok(Self::try_from(value)?)
         } else {
-            Err("expected uint".to_string())
+            Err(ValueConvertError("expected uint".to_string()))
         }
     }
 }
 impl TryFrom<Value> for u32 {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Uint(value) = value {
-            Self::try_from(value).map_err(|e| e.to_string())
+            Ok(Self::try_from(value)?)
         } else {
-            Err("expected uint".to_string())
+            Err(ValueConvertError("expected uint".to_string()))
         }
     }
 }
 impl TryFrom<Value> for u64 {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Uint(value) = value {
             Ok(value)
         } else {
-            Err("expected uint".to_string())
+            Err(ValueConvertError("expected uint".to_string()))
         }
     }
 }
 impl TryFrom<Value> for usize {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Uint(value) = value {
-            Self::try_from(value).map_err(|e| e.to_string())
+            Ok(Self::try_from(value)?)
         } else {
-            Err("expected uint".to_string())
+            Err(ValueConvertError("expected uint".to_string()))
         }
     }
 }
 impl TryFrom<Value> for f32 {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Float(value) = value {
             Ok(value as Self)
         } else {
-            Err("expected float".to_string())
+            Err(ValueConvertError("expected float".to_string()))
         }
     }
 }
 impl TryFrom<Value> for f64 {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Float(value) = value {
             Ok(value)
         } else {
-            Err("expected float".to_string())
+            Err(ValueConvertError("expected float".to_string()))
         }
     }
 }
 impl TryFrom<Value> for char {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Str(value) = value {
             let chars = value.chars().take(2).collect::<Vec<_>>();
             if chars.len() == 1 {
                 Ok(chars[0])
             } else {
-                Err("string length is not one".to_string())
+                Err(ValueConvertError("string length is not one".to_string()))
             }
         } else {
-            Err("expected string".to_string())
+            Err(ValueConvertError("expected string".to_string()))
         }
     }
 }
 impl TryFrom<Value> for String {
-    type Error = String;
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Str(value) = value {
             Ok(value)
         } else {
-            Err("expected string".to_string())
+            Err(ValueConvertError("expected string".to_string()))
         }
     }
 }
-impl<T: TryFrom<Value, Error = String>> TryFrom<Value> for Option<T> {
-    type Error = String;
+impl<T: TryFrom<Value, Error = ValueConvertError>> TryFrom<Value> for Option<T> {
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if value == Value::Null {
             Ok(None)
@@ -864,29 +869,29 @@ impl<T: TryFrom<Value, Error = String>> TryFrom<Value> for Option<T> {
         }
     }
 }
-impl<T: TryFrom<Value, Error = String>> TryFrom<Value> for Vec<T> {
-    type Error = String;
+impl<T: TryFrom<Value, Error = ValueConvertError>> TryFrom<Value> for Vec<T> {
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::List(value) = value {
             Ok(value
                 .into_iter()
                 .map(T::try_from)
-                .collect::<Result<Vec<T>, String>>()?)
+                .collect::<Result<Vec<T>, ValueConvertError>>()?)
         } else {
-            Err("expected list".to_string())
+            Err(ValueConvertError("expected list".to_string()))
         }
     }
 }
-impl<T: TryFrom<Value, Error = String>> TryFrom<Value> for HashMap<String, T> {
-    type Error = String;
+impl<T: TryFrom<Value, Error = ValueConvertError>> TryFrom<Value> for HashMap<String, T> {
+    type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         if let Value::Map(value) = value {
             Ok(value
                 .into_iter()
                 .map(|(key, value)| Ok((key, T::try_from(value)?)))
-                .collect::<Result<HashMap<String, T>, String>>()?)
+                .collect::<Result<HashMap<String, T>, ValueConvertError>>()?)
         } else {
-            Err("expected map".to_string())
+            Err(ValueConvertError("expected map".to_string()))
         }
     }
 }
