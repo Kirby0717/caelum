@@ -6,13 +6,32 @@ pub fn derive_convert_value(item: proc_macro::TokenStream) -> proc_macro::TokenS
     let derive = parse_macro_input!(item as DeriveInput);
     let struct_name = derive.ident;
     quote! {
+        impl ::std::convert::From<#struct_name> for ::clm_plugin_api::core::Value {
+            fn from(value: #struct_name) -> Self {
+                ::clm_plugin_api::core::to_value(&value).unwrap()
+            }
+        }
+        impl ::std::convert::TryFrom<::clm_plugin_api::core::Value> for #struct_name {
+            type Error = ::clm_plugin_api::core::ValueConvertError;
+            fn try_from(value: ::clm_plugin_api::core::Value) -> Result<Self, Self::Error> {
+                ::clm_plugin_api::core::from_value(value)
+            }
+        }
+    }
+    .into()
+}
+#[proc_macro_derive(ConvertValueInApi)]
+pub fn derive_convert_value_in_api(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let derive = parse_macro_input!(item as DeriveInput);
+    let struct_name = derive.ident;
+    quote! {
         impl ::std::convert::From<#struct_name> for ::clm_core::value::Value {
             fn from(value: #struct_name) -> Self {
                 ::clm_core::value::to_value(&value).unwrap()
             }
         }
         impl ::std::convert::TryFrom<::clm_core::value::Value> for #struct_name {
-            type Error = ::clm_core::value::Error;
+            type Error = ::clm_core::value::ValueConvertError;
             fn try_from(value: ::clm_core::value::Value) -> Result<Self, Self::Error> {
                 ::clm_core::value::from_value(value)
             }

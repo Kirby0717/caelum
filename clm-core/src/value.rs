@@ -33,14 +33,14 @@ impl ser::Serialize for Value {
 }
 
 #[derive(Debug)]
-pub struct Error(String);
-impl std::fmt::Display for Error {
+pub struct ValueConvertError(String);
+impl std::fmt::Display for ValueConvertError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
-impl std::error::Error for Error {}
-impl ser::Error for Error {
+impl std::error::Error for ValueConvertError {}
+impl ser::Error for ValueConvertError {
     fn custom<T>(msg: T) -> Self
     where
         T: std::fmt::Display,
@@ -48,7 +48,7 @@ impl ser::Error for Error {
         Self(msg.to_string())
     }
 }
-impl de::Error for Error {
+impl de::Error for ValueConvertError {
     fn custom<T>(msg: T) -> Self
     where
         T: std::fmt::Display,
@@ -57,17 +57,17 @@ impl de::Error for Error {
     }
 }
 
-pub fn to_value<T: serde::Serialize>(value: &T) -> Result<Value, Error> {
+pub fn to_value<T: serde::Serialize>(value: &T) -> Result<Value, ValueConvertError> {
     value.serialize(ValueSerializer)
 }
-pub fn from_value<T: de::DeserializeOwned>(value: Value) -> Result<T, Error> {
+pub fn from_value<T: de::DeserializeOwned>(value: Value) -> Result<T, ValueConvertError> {
     T::deserialize(ValueDeserializer(value))
 }
 
 pub struct ValueSerializer;
 impl ser::Serializer for ValueSerializer {
     type Ok = Value;
-    type Error = Error;
+    type Error = ValueConvertError;
     type SerializeSeq = SerializeValueSeq;
     type SerializeTuple = SerializeValueSeq;
     type SerializeTupleStruct = SerializeValueSeq;
@@ -221,7 +221,7 @@ impl ser::Serializer for ValueSerializer {
 pub struct SerializeValueSeq(Vec<Value>);
 impl ser::SerializeSeq for SerializeValueSeq {
     type Ok = Value;
-    type Error = Error;
+    type Error = ValueConvertError;
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
         T: ?Sized + ser::Serialize,
@@ -235,7 +235,7 @@ impl ser::SerializeSeq for SerializeValueSeq {
 }
 impl ser::SerializeTuple for SerializeValueSeq {
     type Ok = Value;
-    type Error = Error;
+    type Error = ValueConvertError;
     fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
         T: ?Sized + ser::Serialize,
@@ -248,7 +248,7 @@ impl ser::SerializeTuple for SerializeValueSeq {
 }
 impl ser::SerializeTupleStruct for SerializeValueSeq {
     type Ok = Value;
-    type Error = Error;
+    type Error = ValueConvertError;
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
         T: ?Sized + ser::Serialize,
@@ -263,7 +263,7 @@ impl ser::SerializeTupleStruct for SerializeValueSeq {
 pub struct SerializeValueMap(HashMap<String, Value>, Option<String>);
 impl ser::SerializeMap for SerializeValueMap {
     type Ok = Value;
-    type Error = Error;
+    type Error = ValueConvertError;
     fn serialize_key<T>(&mut self, key: &T) -> Result<(), Self::Error>
     where
         T: ?Sized + ser::Serialize,
@@ -274,17 +274,16 @@ impl ser::SerializeMap for SerializeValueMap {
                 self.1 = Some(s);
                 Ok(())
             }
-            _ => Err(Error("map key must be a string".to_string())),
+            _ => Err(ValueConvertError("map key must be a string".to_string())),
         }
     }
     fn serialize_value<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
         T: ?Sized + ser::Serialize,
     {
-        let key = self
-            .1
-            .take()
-            .ok_or_else(|| Error("serialize_value called before serialize_key".to_string()))?;
+        let key = self.1.take().ok_or_else(|| {
+            ValueConvertError("serialize_value called before serialize_key".to_string())
+        })?;
         self.0.insert(key, value.serialize(ValueSerializer)?);
         Ok(())
     }
@@ -294,7 +293,7 @@ impl ser::SerializeMap for SerializeValueMap {
 }
 impl ser::SerializeStruct for SerializeValueMap {
     type Ok = Value;
-    type Error = Error;
+    type Error = ValueConvertError;
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
         T: ?Sized + ser::Serialize,
@@ -312,7 +311,7 @@ pub struct SerializeValueVariant<T> {
 }
 impl ser::SerializeTupleVariant for SerializeValueVariant<SerializeValueSeq> {
     type Ok = Value;
-    type Error = Error;
+    type Error = ValueConvertError;
     fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
     where
         T: ?Sized + ser::Serialize,
@@ -328,7 +327,7 @@ impl ser::SerializeTupleVariant for SerializeValueVariant<SerializeValueSeq> {
 }
 impl ser::SerializeStructVariant for SerializeValueVariant<SerializeValueMap> {
     type Ok = Value;
-    type Error = Error;
+    type Error = ValueConvertError;
     fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
     where
         T: ?Sized + ser::Serialize,
@@ -345,7 +344,7 @@ impl ser::SerializeStructVariant for SerializeValueVariant<SerializeValueMap> {
 
 pub struct ValueDeserializer(Value);
 impl<'de> de::Deserializer<'de> for ValueDeserializer {
-    type Error = Error;
+    type Error = ValueConvertError;
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
@@ -398,7 +397,9 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer {
         match self.0 {
             Value::Str(s) => visitor.visit_enum(ValueEnumAccess::Unit(s)),
             Value::Map(map) => visitor.visit_enum(ValueEnumAccess::WithData(map)),
-            _ => Err(Error("expected string or map for enum".to_string())),
+            _ => Err(ValueConvertError(
+                "expected string or map for enum".to_string(),
+            )),
         }
     }
     serde::forward_to_deserialize_any! {
@@ -428,9 +429,9 @@ impl ValueSeqAccess {
     }
 }
 impl<'de> de::SeqAccess<'de> for ValueSeqAccess {
-    type Error = Error;
+    type Error = ValueConvertError;
 
-    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Error>
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, ValueConvertError>
     where
         T: de::DeserializeSeed<'de>,
     {
@@ -454,9 +455,9 @@ impl ValueMapAccess {
     }
 }
 impl<'de> de::MapAccess<'de> for ValueMapAccess {
-    type Error = Error;
+    type Error = ValueConvertError;
 
-    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Error>
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, ValueConvertError>
     where
         K: de::DeserializeSeed<'de>,
     {
@@ -469,7 +470,7 @@ impl<'de> de::MapAccess<'de> for ValueMapAccess {
             None => Ok(None),
         }
     }
-    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Error>
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, ValueConvertError>
     where
         V: de::DeserializeSeed<'de>,
     {
@@ -484,7 +485,7 @@ pub enum ValueEnumAccess {
 }
 impl<'de> de::EnumAccess<'de> for ValueEnumAccess {
     type Variant = ValueVariantAccess;
-    type Error = Error;
+    type Error = ValueConvertError;
     fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
     where
         V: de::DeserializeSeed<'de>,
@@ -496,7 +497,9 @@ impl<'de> de::EnumAccess<'de> for ValueEnumAccess {
             }
             ValueEnumAccess::WithData(mut map) => {
                 let Some((key, value)) = map.drain().next() else {
-                    return Err(Error("expected single-entry map for enum".to_string()));
+                    return Err(ValueConvertError(
+                        "expected single-entry map for enum".to_string(),
+                    ));
                 };
                 let variant = seed.deserialize(ValueDeserializer(Value::Str(key)))?;
                 Ok((variant, ValueVariantAccess::WithData(value)))
@@ -510,11 +513,11 @@ pub enum ValueVariantAccess {
     WithData(Value),
 }
 impl<'de> de::VariantAccess<'de> for ValueVariantAccess {
-    type Error = Error;
+    type Error = ValueConvertError;
     fn unit_variant(self) -> Result<(), Self::Error> {
         match self {
             ValueVariantAccess::Unit => Ok(()),
-            _ => Err(Error("expected unit variant".to_string())),
+            _ => Err(ValueConvertError("expected unit variant".to_string())),
         }
     }
     fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value, Self::Error>
@@ -523,7 +526,7 @@ impl<'de> de::VariantAccess<'de> for ValueVariantAccess {
     {
         match self {
             ValueVariantAccess::WithData(value) => seed.deserialize(ValueDeserializer(value)),
-            _ => Err(Error("expected newtype variant".to_string())),
+            _ => Err(ValueConvertError("expected newtype variant".to_string())),
         }
     }
     fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
@@ -534,7 +537,7 @@ impl<'de> de::VariantAccess<'de> for ValueVariantAccess {
             ValueVariantAccess::WithData(value) => {
                 ValueDeserializer(value).deserialize_seq(visitor)
             }
-            _ => Err(Error("expected tuple variant".to_string())),
+            _ => Err(ValueConvertError("expected tuple variant".to_string())),
         }
     }
     fn struct_variant<V>(
@@ -549,7 +552,7 @@ impl<'de> de::VariantAccess<'de> for ValueVariantAccess {
             ValueVariantAccess::WithData(value) => {
                 ValueDeserializer(value).deserialize_map(visitor)
             }
-            _ => Err(Error("expected tuple variant".to_string())),
+            _ => Err(ValueConvertError("expected tuple variant".to_string())),
         }
     }
 }

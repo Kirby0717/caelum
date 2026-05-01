@@ -5,8 +5,9 @@ members = [
   "clm-macros",
   "clm-plugin-api",
   "plugins/clm-buffer",
-  "plugins/clm-modal",
+  "plugins/clm-editor-tui",
   "plugins/clm-keymap",
+  "plugins/clm-modal",
   "plugins/clm-tui",
 ]
 resolver = "3"

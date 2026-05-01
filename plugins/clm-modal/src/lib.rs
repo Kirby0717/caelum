@@ -6,6 +6,7 @@ use clm_plugin_api::priority;
 pub struct ModalPlugin {
     mode: Mode,
     cursor: CursorState,
+    view_offset: (usize, usize),
     command_line: String,
     command_line_cursor: usize,
     buffer_id: BufferId,
@@ -27,6 +28,7 @@ impl ModalPlugin {
         Self {
             mode,
             cursor,
+            view_offset: (0, 0),
             command_line,
             command_line_cursor: 0,
             buffer_id: BufferId(id),
@@ -262,7 +264,7 @@ impl ModalPlugin {
                             start_byte_col_idx: prev_line.len() - last.len_utf8(),
                             end_line_idx: cursor.row - 1,
                             end_byte_col_idx: prev_line.len(),
-                            lock_token: None,
+                            lock_token: self.key_holder,
                         });
                         cursor.row -= 1;
                         cursor.byte_col = prev_line.len() - last.len_utf8();
@@ -380,6 +382,14 @@ impl ModalPlugin {
         self.clamp_cursor();
         EventResult::Handled
     }
+    #[service(name = "render_pane")]
+    fn render_pane(&mut self, args: &[Value]) -> Result<Value, String> {
+        use clm_editor_tui::*;
+        let pane_id: PaneId = get_arg(args, 0)?;
+        let w: usize = get_arg(args, 1)?;
+        let h: usize = get_arg(args, 2)?;
+        Ok(render(&mut self.view_offset, w, h).unwrap().into())
+    }
     #[service]
     fn mode(&self, _args: &[Value]) -> Result<Value, String> {
         Ok(self.mode.into())
@@ -494,4 +504,139 @@ impl Plugin for ModalPlugin {
             }),
         );
     }
+}
+
+fn query_service_anyhow(name: &str, args: &[Value]) -> anyhow::Result<Value> {
+    query_service(name, args).map_err(anyhow::Error::msg)
+}
+fn render(
+    view_offset: &mut (usize, usize),
+    width: usize,
+    height: usize,
+) -> anyhow::Result<Vec<clm_editor_tui::DrawCommand>> {
+    use clm_editor_tui::*;
+    use unicode_width::UnicodeWidthStr;
+
+    let mode: Mode = query_service_anyhow("modal.mode", &[])?.try_into().unwrap();
+    let cursor: CursorState = query_service_anyhow("modal.cursor", &[])?
+        .try_into()
+        .unwrap_or_default();
+    let buffer_id: BufferId = query_service_anyhow("modal.buffer_id", &[])?
+        .try_into()
+        .unwrap();
+    let command_line: String = query_service_anyhow("modal.command_line", &[])?
+        .try_into()
+        .unwrap_or_default();
+    let cursor_line: String =
+        query_service_anyhow("buffer.line", &[buffer_id.into(), cursor.row.into()])
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+    // オフセットの計算
+    {
+        if cursor.row < view_offset.1 {
+            view_offset.1 = cursor.row;
+        }
+        if view_offset.1 + height <= cursor.row {
+            view_offset.1 = cursor.row - (height - 1);
+        }
+        let display_col_l = cursor_line[..cursor.byte_col].width();
+        let display_col_r = display_col_l + cursor_line[cursor.byte_col..].width();
+        if display_col_l <= view_offset.0 {
+            view_offset.0 = display_col_l;
+        }
+        if view_offset.0 + width <= display_col_r {
+            view_offset.0 = display_col_r - width;
+        }
+    }
+
+    // バッファーの表示
+    let mut cell_grid = vec![];
+    for row in 0..height {
+        let line: Option<String> = query_service_anyhow(
+            "buffer.line",
+            &[buffer_id.into(), (view_offset.1 + row as usize).into()],
+        )
+        .unwrap()
+        .try_into()
+        .unwrap();
+        if let Some(line) = line {
+            cell_grid.push(trim_display_range(
+                &line,
+                view_offset.0,
+                view_offset.0 + width,
+            ));
+        } else {
+            break;
+        }
+    }
+    // ステータスラインの設定
+    /*execute!(stdout(), MoveTo(0, size.1 - 1))?;
+    match mode {
+        Mode::Normal => execute!(stdout(), Print("-- NORMAL --"),)?,
+        Mode::Insert => execute!(stdout(), Print("-- INSERT --"))?,
+        Mode::Command => execute!(stdout(), Print("-- COMMAND -- :"), Print(&command_line))?,
+    }*/
+    // カーソルの設定
+    match mode {
+        Mode::Normal | Mode::Insert => {
+            let x = cursor_line[..cursor.byte_col].width();
+            /*execute!(
+                stdout(),
+                MoveTo(
+                    (x - view_offset.0) as u16,
+                    (cursor.row - view_offset.1) as u16
+                ),
+            )?;
+            match mode {
+                Mode::Normal => execute!(stdout(), SetCursorStyle::SteadyBlock)?,
+                Mode::Insert => execute!(stdout(), SetCursorStyle::SteadyBar)?,
+                _ => unreachable!(),
+            }*/
+        }
+        Mode::Command => {
+            let cursor: usize = query_service_anyhow("modal.command_line_cursor", &[])?
+                .try_into()
+                .unwrap_or_default();
+            let x = "-- COMMAND -- :".width() + command_line[..cursor].width();
+
+            /*execute!(
+                stdout(),
+                MoveTo(x as u16, size.1 - 1),
+                SetCursorStyle::SteadyBar
+            )?;*/
+        }
+    }
+    Ok(vec![DrawCommand::CellGrid(cell_grid)])
+}
+
+fn trim_display_range(line: &str, range_l: usize, range_r: usize) -> String {
+    use unicode_width::UnicodeWidthChar;
+    let mut width = 0;
+    let mut result = String::new();
+    for c in line.chars() {
+        let l = width;
+        let w = c.width().unwrap_or(0);
+        let r = l + w;
+        width += w;
+        if r <= range_l {
+            continue;
+        }
+        if range_r <= l {
+            break;
+        }
+        if l < range_l || range_r < r {
+            for i in l..r {
+                if range_l <= i && i < range_r {
+                    result.push(' ');
+                }
+            }
+        } else {
+            if c != '\n' {
+                result.push(c);
+            }
+        }
+    }
+    result
 }

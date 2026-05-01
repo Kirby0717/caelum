@@ -1,16 +1,16 @@
-use clm_macros::ConvertValue;
+use clm_macros::ConvertValueInApi;
 use serde::{Deserialize, Serialize};
 
 /// 物理キー（キーの位置、レイアウト非依存）
 /// キーバインド用。TUIでは取得できない場合がある。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
 pub enum PhysicalKey {
     Code(KeyCode),
     Unknown,
 }
 
 /// キーの物理位置（USキーボード基準）
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
 pub enum KeyCode {
     // 文字キー（物理位置）
     KeyA,
@@ -128,7 +128,7 @@ pub enum KeyCode {
 
 /// 論理キー（レイアウト依存、ユーザの意図）
 /// テキスト入力やコマンド判定用。
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
 pub enum LogicalKey {
     /// 名前付きキー
     Named(NamedKey),
@@ -140,7 +140,7 @@ pub enum LogicalKey {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
 pub enum NamedKey {
     Enter,
     Tab,
@@ -181,7 +181,7 @@ pub enum NamedKey {
 
 /// 修飾キーの状態
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ConvertValue,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ConvertValueInApi,
 )]
 pub struct Modifiers {
     pub shift: bool,
@@ -192,7 +192,7 @@ pub struct Modifiers {
 
 /// キーの位置（同じ論理キーが複数箇所にある場合の区別）
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ConvertValue,
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ConvertValueInApi,
 )]
 pub enum KeyLocation {
     #[default]
@@ -203,7 +203,7 @@ pub enum KeyLocation {
 }
 
 /// 押下状態
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
 pub enum ElementState {
     Pressed,
     Released,
@@ -215,7 +215,7 @@ impl ElementState {
 }
 
 /// キーイベント本体
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
 pub struct KeyEvent {
     /// 物理キー（TUIではUnknownの場合あり）
     pub physical_key: PhysicalKey,

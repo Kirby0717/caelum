@@ -8,7 +8,7 @@ pub use clm_core::registry::{
     register_resolver,
 };
 pub use clm_core::runtime::{emit_event_async, init_async_runtime, sleep, spawn_async};
-pub use clm_core::value::{Value, from_value, to_value};
+pub use clm_core::value::{Value, ValueConvertError, from_value, to_value};
 
 use crate::data::*;
 

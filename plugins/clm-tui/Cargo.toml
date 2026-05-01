@@ -8,7 +8,5 @@ description.workspace = true
 repository.workspace = true
 
 [dependencies]
-anyhow = "1.0.102"
 clm-plugin-api = { path = "../../clm-plugin-api" }
 crossterm = "0.29"
-unicode-width = "0.2"

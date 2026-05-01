@@ -1,7 +1,7 @@
-use clm_macros::ConvertValue;
+use clm_macros::ConvertValueInApi;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ConvertValueInApi)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
     #[default]
@@ -19,13 +19,13 @@ impl std::fmt::Display for Mode {
         write!(f, "{s}")
     }
 }
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, ConvertValueInApi)]
 pub struct CursorState {
     pub row: usize,
     pub byte_col: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CursorMove {
     Up {
@@ -55,12 +55,12 @@ fn one() -> usize {
     1
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
 pub struct BufferId(pub usize);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
 pub struct LockToken(pub u64);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
 pub enum BufferOp {
     Insert {
         buffer_id: BufferId,
@@ -83,7 +83,7 @@ pub enum BufferOp {
     Save(BufferId),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
 #[serde(rename_all = "snake_case")]
 pub enum EditAction {
     InsertText(String),
@@ -96,7 +96,7 @@ pub enum EditAction {
     Undo,
     Redo,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandLineAction {
     InsertText(String),
@@ -106,7 +106,7 @@ pub enum CommandLineAction {
     Clear,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValue)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
 pub enum BufferChange {
     Insert {
         buffer_id: BufferId,
