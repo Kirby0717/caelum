@@ -414,7 +414,7 @@ impl ModalPlugin {
 impl ModalPlugin {
     fn render(&mut self, size: (u16, u16)) -> anyhow::Result<Vec<clm_editor_tui::DrawCommand>> {
         use clm_editor_tui::*;
-        use unicode_width::UnicodeWidthStr;
+        use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
         let size = (size.0 as usize, size.1 as usize);
         let mut commands = vec![];
@@ -438,11 +438,16 @@ impl ModalPlugin {
                 view_offset.1 = cursor.row - (size.1 - 1);
             }
             let display_col_l = cursor_line[..cursor.byte_col].width();
-            let display_col_r = display_col_l + cursor_line[cursor.byte_col..].width();
+            let display_col_r = display_col_l
+                + cursor_line[cursor.byte_col..]
+                    .chars()
+                    .next()
+                    .and_then(char::width)
+                    .unwrap_or(0);
             if display_col_l <= view_offset.0 {
                 view_offset.0 = display_col_l;
             }
-            if view_offset.0 + size.0 <= display_col_r {
+            if view_offset.0 + size.0 < display_col_r {
                 view_offset.0 = display_col_r - size.0;
             }
         }
