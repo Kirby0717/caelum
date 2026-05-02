@@ -122,20 +122,17 @@ fn parse_key_sequence(input: &str) -> Result<KeySequence, ParseError> {
     input.split(' ').map(parse_key_pattern).collect()
 }
 
-fn toml_to_event(toml: toml::Value) -> Result<Event, ParseError> {
-    let toml::Value::Table(mut event_table) = toml else {
-        return Err(ParseError("event should table".to_string()));
-    };
-    let Some(kind) = event_table.remove("kind") else {
-        return Err(ParseError("event should have kind".to_string()));
+fn table_to_event(mut table: toml::Table) -> Result<Event, ParseError> {
+    let Some(kind) = table.remove("event") else {
+        return Err(ParseError("this in not event".to_string()));
     };
     let toml::Value::String(kind) = kind else {
         return Err(ParseError("event kind should string".to_string()));
     };
     let kind = EventKind(kind);
-    if let Some(data) = event_table.remove("data") {
-        if !event_table.is_empty() {
-            return Err(ParseError("use the data key alone".to_string()));
+    if let Some(data) = table.remove("data") {
+        if !table.is_empty() {
+            return Err(ParseError("should use the data key alone".to_string()));
         }
         Ok(Event {
             kind,
@@ -144,91 +141,137 @@ fn toml_to_event(toml: toml::Value) -> Result<Event, ParseError> {
     } else {
         Ok(Event {
             kind,
-            data: toml_to_value(toml::Value::Table(event_table)),
+            data: toml_to_value(toml::Value::Table(table)),
         })
     }
 }
-
+#[derive(Debug, Clone)]
+struct ServiceQuery {
+    name: String,
+    args: Vec<Value>,
+}
+fn table_to_service_query(mut table: toml::Table) -> Result<ServiceQuery, ParseError> {
+    let Some(name) = table.remove("service") else {
+        return Err(ParseError("this in not service".to_string()));
+    };
+    let toml::Value::String(name) = name else {
+        return Err(ParseError("service name should string".to_string()));
+    };
+    if let Some(args) = table.remove("args") {
+        let args = if let toml::Value::Array(args) = args {
+            args
+        } else {
+            vec![args]
+        };
+        if !table.is_empty() {
+            return Err(ParseError("should use the args key alone".to_string()));
+        }
+        Ok(ServiceQuery {
+            name,
+            args: args.into_iter().map(toml_to_value).collect(),
+        })
+    } else {
+        Ok(ServiceQuery {
+            name,
+            args: vec![toml_to_value(toml::Value::Table(table))],
+        })
+    }
+}
+#[derive(Debug, Clone)]
+struct Command {
+    name: String,
+    args: Vec<String>,
+}
+fn table_to_command(mut table: toml::Table) -> Result<Command, ParseError> {
+    let Some(name) = table.remove("command") else {
+        return Err(ParseError("this in not command".to_string()));
+    };
+    let toml::Value::String(name) = name else {
+        return Err(ParseError("command name should string".to_string()));
+    };
+    let Some(args) = table.remove("args") else {
+        return Ok(Command { name, args: vec![] });
+    };
+    match args {
+        toml::Value::String(arg) => Ok(Command {
+            name,
+            args: vec![arg],
+        }),
+        toml::Value::Array(args) => {
+            if !args.iter().all(|arg| arg.is_str()) {
+                return Err(ParseError("args should string array".to_string()));
+            }
+            Ok(Command {
+                name,
+                args: args
+                    .into_iter()
+                    .map(|arg| arg.as_str().unwrap().to_string())
+                    .collect(),
+            })
+        }
+        _ => Err(ParseError("args should string array or string".to_string())),
+    }
+}
 #[derive(Debug, Clone)]
 enum Binding {
-    Event(Vec<Event>),
-    Command { name: String, args: Vec<String> },
+    Event(Event),
+    Service(ServiceQuery),
+    Command(Command),
 }
-impl Binding {
-    fn from_toml(toml: toml::Value) -> Result<Self, ParseError> {
-        match toml {
-            toml::Value::Array(events) => Ok(Binding::Event(
-                events
-                    .into_iter()
-                    .map(toml_to_event)
-                    .collect::<Result<_, _>>()?,
-            )),
-            toml::Value::Table(mut table) => {
-                if let Some(command) = table.remove("command") {
-                    let toml::Value::String(name) = command else {
-                        return Err(ParseError("command name should string".to_string()));
-                    };
-                    let mut args = vec![];
-                    if let Some(args_value) = table.remove("args") {
-                        match args_value {
-                            toml::Value::Array(args_array) => {
-                                for arg in args_array {
-                                    let toml::Value::String(arg) = arg else {
-                                        return Err(ParseError("arg should string".to_string()));
-                                    };
-                                    args.push(arg);
-                                }
-                            }
-                            _ => {
-                                return Err(ParseError("args should array of string".to_string()));
-                            }
-                        }
-                    }
-                    if !table.is_empty() {
-                        return Err(ParseError(
-                            "command action should have only command/args".to_string(),
-                        ));
-                    }
-                    Ok(Binding::Command { name, args })
-                } else {
-                    Ok(Binding::Event(vec![toml_to_event(toml::Value::Table(
-                        table,
-                    ))?]))
-                }
-            }
-            _ => Err(ParseError(format!("invalid value: {toml}"))),
-        }
+fn toml_to_binding(toml: toml::Value) -> Result<Binding, ParseError> {
+    let toml::Value::Table(table) = toml else {
+        return Err(ParseError(format!("invalid value: {toml}")));
+    };
+    let is_event = table.contains_key("event");
+    let is_service = table.contains_key("service");
+    let is_command = table.contains_key("command");
+    match (is_event, is_service, is_command) {
+        (true, false, false) => Ok(Binding::Event(table_to_event(table)?)),
+        (false, true, false) => Ok(Binding::Service(table_to_service_query(table)?)),
+        (false, false, true) => Ok(Binding::Command(table_to_command(table)?)),
+        (false, false, false) => Err(ParseError("no binding name".to_string())),
+        _ => Err(ParseError("conflict binding name".to_string())),
+    }
+}
+type Bindings = Vec<Binding>;
+fn toml_to_bindings(toml: toml::Value) -> Result<Bindings, ParseError> {
+    match toml {
+        toml::Value::Array(sequence) => Ok(sequence
+            .into_iter()
+            .map(toml_to_binding)
+            .collect::<Result<Vec<_>, _>>()?),
+        _ => Ok(vec![toml_to_binding(toml)?]),
     }
 }
 
 #[derive(Debug, Default)]
 struct TrieNode {
-    pub binding: Option<Binding>,
+    pub binding: Option<Vec<Binding>>,
     pub children: HashMap<KeyPattern, Rc<TrieNode>>,
 }
 impl TrieNode {
     fn from_toml(value: toml::Value) -> Result<Rc<Self>, ParseError> {
         let mut root = Rc::new(Self::default());
         if let toml::Value::Table(table) = value {
-            for (key_sequence, binding) in table {
+            for (key_sequence, bindings) in table {
                 let key_sequence = parse_key_sequence(&key_sequence)?;
-                let binding = Binding::from_toml(binding)?;
-                root.add_binding(&key_sequence, binding);
+                let bindings = toml_to_bindings(bindings)?;
+                root.add_bindings(&key_sequence, bindings);
             }
             Ok(root)
         } else {
             Err(ParseError("keymap is not table".to_string()))
         }
     }
-    fn add_binding(self: &mut Rc<Self>, key_sequence: &[KeyPattern], binding: Binding) {
+    fn add_bindings(self: &mut Rc<Self>, key_sequence: &[KeyPattern], bindings: Vec<Binding>) {
         let this = Rc::get_mut(self).unwrap();
         if let Some(key) = key_sequence.first() {
             this.children
                 .entry(key.clone())
                 .or_insert_with(|| Rc::new(Self::default()))
-                .add_binding(&key_sequence[1..], binding);
+                .add_bindings(&key_sequence[1..], bindings);
         } else {
-            this.binding = Some(binding);
+            this.binding = Some(bindings);
         }
     }
 }
@@ -253,7 +296,7 @@ impl Keymap {
         self.root = self.modes.get(mode).map(Rc::downgrade);
         self.head = self.root.clone();
     }
-    fn feed(&mut self, key: &KeyPattern) -> Option<Binding> {
+    fn feed(&mut self, key: &KeyPattern) -> Option<Vec<Binding>> {
         let head = self.head.take()?.upgrade().unwrap();
         match head.children.get(key) {
             Some(child) => {
@@ -322,17 +365,17 @@ impl KeymapPlugin {
             Mode::Normal => return EventResult::Propagate,
             Mode::Insert => match &key_event.logical_key {
                 LogicalKey::Character(c) => {
-                    emit_edit(&EditAction::InsertText(c.clone()));
+                    query_edit(&EditAction::InsertText(c.clone()));
                 }
                 LogicalKey::Named(named) => match named {
                     NamedKey::Enter => {
-                        emit_edit(&EditAction::NewLine);
+                        query_edit(&EditAction::NewLine);
                     }
                     NamedKey::Backspace => {
-                        emit_edit(&EditAction::DeleteCharBackward);
+                        query_edit(&EditAction::DeleteCharBackward);
                     }
                     NamedKey::Delete => {
-                        emit_edit(&EditAction::DeleteCharForward);
+                        query_edit(&EditAction::DeleteCharForward);
                     }
                     _ => return EventResult::Propagate,
                 },
@@ -340,21 +383,21 @@ impl KeymapPlugin {
             },
             Mode::Command => match &key_event.logical_key {
                 LogicalKey::Character(c) => {
-                    emit_command_line(&CommandLineAction::InsertText(c.clone()));
+                    query_command_line(&CommandLineAction::InsertText(c.clone()));
                 }
                 LogicalKey::Named(named) => match named {
                     NamedKey::Enter => {
-                        emit_command_line(&CommandLineAction::Execute);
+                        query_command_line(&CommandLineAction::Execute);
                     }
                     NamedKey::Escape => {
-                        emit_command_line(&CommandLineAction::Clear);
-                        emit_set_mode(Mode::Normal);
+                        query_command_line(&CommandLineAction::Clear);
+                        query_set_mode(Mode::Normal);
                     }
                     NamedKey::Backspace => {
-                        emit_command_line(&CommandLineAction::DeleteCharBackward);
+                        query_command_line(&CommandLineAction::DeleteCharBackward);
                     }
                     NamedKey::Delete => {
-                        emit_command_line(&CommandLineAction::DeleteCharForward);
+                        query_command_line(&CommandLineAction::DeleteCharForward);
                     }
                     _ => return EventResult::Propagate,
                 },
@@ -372,10 +415,10 @@ impl KeymapPlugin {
             return EventResult::Propagate;
         };
         if key_event.state.is_pressed() {
-            if let Some(binding) = self.keymap.feed(&key) {
-                match binding {
-                    Binding::Event(events) => {
-                        for event in events {
+            if let Some(bindings) = self.keymap.feed(&key) {
+                for binding in bindings {
+                    match binding {
+                        Binding::Event(event) => {
                             emit_event(
                                 event,
                                 DispatchDescriptor::Consumable(vec![SortKey(
@@ -383,9 +426,12 @@ impl KeymapPlugin {
                                 )]),
                             );
                         }
-                    }
-                    Binding::Command { name, args } => {
-                        execute_command(&name, &args);
+                        Binding::Service(query) => {
+                            query_service(&query.name, &query.args).unwrap();
+                        }
+                        Binding::Command(command) => {
+                            execute_command(&command.name, &command.args);
+                        }
                     }
                 }
             } else {

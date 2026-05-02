@@ -12,7 +12,7 @@ use crate::runtime::async_runtime;
 use crate::value::Value;
 
 pub type Resolver = Box<dyn Fn(Option<&Value>) -> i64>;
-pub type Command = Box<dyn Fn(&[String]) -> Vec<(Event, DispatchDescriptor)>>;
+pub type Command = Box<dyn Fn(&[String]) -> Result<(), String>>;
 pub type RawServiceHandler = unsafe fn(*const (), &[Value]) -> Result<Value, String>;
 pub type RawMutServiceHandler = unsafe fn(*mut (), &[Value]) -> Result<Value, String>;
 #[derive(Debug, Clone, Copy)]
@@ -209,12 +209,9 @@ pub fn dispatch_next() -> bool {
     while let Some((name, args)) = pop_command() {
         COMMANDS.with_borrow_mut(|commands| {
             if let Some(command) = commands.get_mut(&name) {
-                let events = command(&args);
-                EVENT_QUEUE.with_borrow_mut(|queue| {
-                    for (event, descriptor) in events {
-                        queue.push_back((event, descriptor));
-                    }
-                });
+                if let Err(_e) = command(&args) {
+                    // TODO: エラー出力
+                }
             }
         });
     }

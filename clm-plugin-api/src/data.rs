@@ -61,29 +61,6 @@ pub struct BufferId(pub usize);
 pub struct LockToken(pub u64);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
-pub enum BufferOp {
-    Insert {
-        buffer_id: BufferId,
-        line_idx: usize,
-        byte_col_idx: usize,
-        text: String,
-        lock_token: Option<LockToken>,
-    },
-    Remove {
-        buffer_id: BufferId,
-        start_line_idx: usize,
-        start_byte_col_idx: usize,
-        end_line_idx: usize,
-        end_byte_col_idx: usize,
-        lock_token: Option<LockToken>,
-    },
-    Undo(BufferId),
-    Redo(BufferId),
-    Close(BufferId),
-    Save(BufferId),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
 #[serde(rename_all = "snake_case")]
 pub enum EditAction {
     InsertText(String),

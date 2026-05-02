@@ -34,6 +34,11 @@ impl ser::Serialize for Value {
 
 #[derive(Debug)]
 pub struct ValueConvertError(String);
+impl From<ValueConvertError> for String {
+    fn from(value: ValueConvertError) -> Self {
+        value.0
+    }
+}
 impl From<std::num::TryFromIntError> for ValueConvertError {
     fn from(value: std::num::TryFromIntError) -> Self {
         Self(value.to_string())

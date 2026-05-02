@@ -22,48 +22,18 @@ pub fn get_arg<T: TryFrom<Value>>(args: &[Value], index: usize) -> Result<T, Str
         .map_err(|_| "invalid arg".to_string())
 }
 
-pub fn emit_set_mode(mode: Mode) {
-    emit_event(
-        Event {
-            kind: EventKind("set_mode".to_string()),
-            data: to_value(&mode).unwrap(),
-        },
-        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-    );
+pub fn query_set_mode(mode: Mode) {
+    let _ = query_service("modal.set_mode", &[to_value(&mode).unwrap()]);
 }
-pub fn emit_cursor_move(cursor_move: &CursorMove) {
-    emit_event(
-        Event {
-            kind: EventKind("cursor_move".to_string()),
-            data: to_value(cursor_move).unwrap(),
-        },
-        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-    );
+pub fn query_cursor_move(cursor_move: &CursorMove) {
+    let _ = query_service("modal.cursor_move", &[to_value(cursor_move).unwrap()]);
 }
-pub fn emit_buffer_op(buffer_op: &BufferOp) {
-    emit_event(
-        Event {
-            kind: EventKind("buffer_op".to_string()),
-            data: to_value(buffer_op).unwrap(),
-        },
-        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-    );
+pub fn query_edit(edit: &EditAction) {
+    let _ = query_service("modal.edit", &[to_value(edit).unwrap()]);
 }
-pub fn emit_edit(edit: &EditAction) {
-    emit_event(
-        Event {
-            kind: EventKind("edit".to_string()),
-            data: to_value(edit).unwrap(),
-        },
-        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-    );
-}
-pub fn emit_command_line(cmd_action: &CommandLineAction) {
-    emit_event(
-        Event {
-            kind: EventKind("command_line_action".to_string()),
-            data: to_value(cmd_action).unwrap(),
-        },
-        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+pub fn query_command_line(cmd_action: &CommandLineAction) {
+    let _ = query_service(
+        "modal.command_line_action",
+        &[to_value(cmd_action).unwrap()],
     );
 }

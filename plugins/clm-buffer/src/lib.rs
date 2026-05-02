@@ -236,138 +236,141 @@ impl BufferPlugin {
             .map(|file_path| file_path.to_string_lossy().to_string())
             .into())
     }
-    #[subscribe(priority = priority::DEFAULT)]
-    fn on_buffer_op(&mut self, data: &Value) -> EventResult {
-        let Ok(buffer_op) = BufferOp::try_from(data.clone()) else {
-            return EventResult::Propagate;
+    #[service]
+    fn insert(&mut self, args: &[Value]) -> Result<Value, String> {
+        let buffer_id: BufferId = get_arg(args, 0)?;
+        let Some(buffer) = self.buffers.get_mut(&buffer_id) else {
+            return Err("buffer not found".to_string());
         };
-        match buffer_op {
-            BufferOp::Insert {
-                buffer_id,
-                line_idx,
-                byte_col_idx,
-                text,
-                lock_token,
-            } => {
-                if let Some(buffer) = self.buffers.get_mut(&buffer_id) {
-                    let byte_idx = buffer.rope().line_to_byte_idx(line_idx, LF_CR) + byte_col_idx;
-                    let Some(rope) = buffer.rope_mut(lock_token) else {
-                        return EventResult::Handled;
-                    };
-                    rope.insert(byte_idx, &text);
-                    emit_event(
-                        Event {
-                            kind: EventKind("buffer_changed".to_string()),
-                            data: to_value(&BufferChange::Insert {
-                                buffer_id,
-                                start_line_idx: line_idx,
-                                start_byte_col_idx: byte_col_idx,
-                                end_line_idx: line_idx,
-                                end_byte_col_idx: byte_col_idx + text.len(),
-                            })
-                            .unwrap(),
-                        },
-                        DispatchDescriptor::Broadcast,
-                    );
-                } else {
-                    return EventResult::Propagate;
-                }
-            }
-            BufferOp::Remove {
-                buffer_id,
-                start_line_idx,
-                start_byte_col_idx,
-                end_line_idx,
-                end_byte_col_idx,
-                lock_token,
-            } => {
-                if let Some(buffer) = self.buffers.get_mut(&buffer_id) {
-                    let start_byte_idx =
-                        buffer.rope().line_to_byte_idx(start_line_idx, LF_CR) + start_byte_col_idx;
-                    let end_byte_idx =
-                        buffer.rope().line_to_byte_idx(end_line_idx, LF_CR) + end_byte_col_idx;
-                    let remove_text = buffer
-                        .rope()
-                        .slice(start_byte_idx..end_byte_idx)
-                        .to_string();
-                    let Some(rope) = buffer.rope_mut(lock_token) else {
-                        return EventResult::Handled;
-                    };
-                    rope.remove(start_byte_idx..end_byte_idx);
-                    emit_event(
-                        Event {
-                            kind: EventKind("buffer_changed".to_string()),
-                            data: to_value(&BufferChange::Remove {
-                                buffer_id,
-                                line_idx: start_line_idx,
-                                byte_col_idx: start_byte_col_idx,
-                                text: remove_text,
-                            })
-                            .unwrap(),
-                        },
-                        DispatchDescriptor::Broadcast,
-                    );
-                } else {
-                    return EventResult::Propagate;
-                }
-            }
-            BufferOp::Undo(buffer_id) => {
-                if let Some(buffer) = self.buffers.get_mut(&buffer_id) {
-                    buffer.undo();
-                    emit_event(
-                        Event {
-                            kind: EventKind("buffer_changed".to_string()),
-                            data: to_value(&BufferChange::Reset(buffer_id)).unwrap(),
-                        },
-                        DispatchDescriptor::Broadcast,
-                    );
-                } else {
-                    return EventResult::Propagate;
-                }
-            }
-            BufferOp::Redo(buffer_id) => {
-                if let Some(buffer) = self.buffers.get_mut(&buffer_id) {
-                    buffer.redo();
-                    emit_event(
-                        Event {
-                            kind: EventKind("buffer_changed".to_string()),
-                            data: to_value(&BufferChange::Reset(buffer_id)).unwrap(),
-                        },
-                        DispatchDescriptor::Broadcast,
-                    );
-                } else {
-                    return EventResult::Propagate;
-                }
-            }
-            BufferOp::Close(buffer_id) => {
-                if let Some(buffer) = self.buffers.get(&buffer_id)
-                    && buffer.is_locked()
-                {
-                    // TODO: エラー出力
-                    return EventResult::Handled;
-                }
-                if let Some(_buffer) = self.buffers.remove(&buffer_id) {
-                    return EventResult::Handled;
-                } else {
-                    return EventResult::Propagate;
-                }
-            }
-            BufferOp::Save(buffer_id) => {
-                if let Some(buffer) = self.buffers.get_mut(&buffer_id) {
-                    let _ = buffer.save();
-                    emit_event(
-                        Event {
-                            kind: EventKind("buffer_saved".to_string()),
-                            data: to_value(&buffer_id).unwrap(),
-                        },
-                        DispatchDescriptor::Broadcast,
-                    );
-                } else {
-                    return EventResult::Propagate;
-                }
-            }
+        let line_idx: usize = get_arg(args, 1)?;
+        let byte_col_idx: usize = get_arg(args, 2)?;
+        let text: String = get_arg(args, 3)?;
+        let lock_token: Option<LockToken> = get_arg(args, 4)?;
+
+        let byte_idx = buffer.rope().line_to_byte_idx(line_idx, LF_CR) + byte_col_idx;
+        let Some(rope) = buffer.rope_mut(lock_token) else {
+            return Err("this buffer is locked".to_string());
+        };
+        rope.insert(byte_idx, &text);
+        emit_event(
+            Event {
+                kind: EventKind("buffer_changed".to_string()),
+                data: to_value(&BufferChange::Insert {
+                    buffer_id,
+                    start_line_idx: line_idx,
+                    start_byte_col_idx: byte_col_idx,
+                    end_line_idx: line_idx,
+                    end_byte_col_idx: byte_col_idx + text.len(),
+                })
+                .unwrap(),
+            },
+            DispatchDescriptor::Broadcast,
+        );
+        Ok(Value::Null)
+    }
+    #[service]
+    fn remove(&mut self, args: &[Value]) -> Result<Value, String> {
+        let buffer_id: BufferId = get_arg(args, 0)?;
+        let Some(buffer) = self.buffers.get_mut(&buffer_id) else {
+            return Err("buffer not found".to_string());
+        };
+        let start_line_idx: usize = get_arg(args, 1)?;
+        let start_byte_col_idx: usize = get_arg(args, 2)?;
+        let end_line_idx: usize = get_arg(args, 3)?;
+        let end_byte_col_idx: usize = get_arg(args, 4)?;
+        let lock_token: Option<LockToken> = get_arg(args, 5)?;
+
+        let start_byte_idx =
+            buffer.rope().line_to_byte_idx(start_line_idx, LF_CR) + start_byte_col_idx;
+        let end_byte_idx = buffer.rope().line_to_byte_idx(end_line_idx, LF_CR) + end_byte_col_idx;
+        let remove_text = buffer
+            .rope()
+            .slice(start_byte_idx..end_byte_idx)
+            .to_string();
+        let Some(rope) = buffer.rope_mut(lock_token) else {
+            return Err("this buffer is locked".to_string());
+        };
+        rope.remove(start_byte_idx..end_byte_idx);
+        emit_event(
+            Event {
+                kind: EventKind("buffer_changed".to_string()),
+                data: to_value(&BufferChange::Remove {
+                    buffer_id,
+                    line_idx: start_line_idx,
+                    byte_col_idx: start_byte_col_idx,
+                    text: remove_text,
+                })
+                .unwrap(),
+            },
+            DispatchDescriptor::Broadcast,
+        );
+        Ok(Value::Null)
+    }
+    #[service]
+    fn undo(&mut self, args: &[Value]) -> Result<Value, String> {
+        let buffer_id: BufferId = get_arg(args, 0)?;
+        let Some(buffer) = self.buffers.get_mut(&buffer_id) else {
+            return Err("buffer not found".to_string());
+        };
+
+        buffer.undo();
+        emit_event(
+            Event {
+                kind: EventKind("buffer_changed".to_string()),
+                data: to_value(&BufferChange::Reset(buffer_id)).unwrap(),
+            },
+            DispatchDescriptor::Broadcast,
+        );
+
+        Ok(Value::Null)
+    }
+    #[service]
+    fn redo(&mut self, args: &[Value]) -> Result<Value, String> {
+        let buffer_id: BufferId = get_arg(args, 0)?;
+        let Some(buffer) = self.buffers.get_mut(&buffer_id) else {
+            return Err("buffer not found".to_string());
+        };
+
+        buffer.redo();
+        emit_event(
+            Event {
+                kind: EventKind("buffer_changed".to_string()),
+                data: to_value(&BufferChange::Reset(buffer_id)).unwrap(),
+            },
+            DispatchDescriptor::Broadcast,
+        );
+
+        Ok(Value::Null)
+    }
+    #[service]
+    fn close(&mut self, args: &[Value]) -> Result<Value, String> {
+        let buffer_id: BufferId = get_arg(args, 0)?;
+        if let Some(buffer) = self.buffers.get(&buffer_id)
+            && buffer.is_locked()
+        {
+            return Err("this buffer is locked".to_string());
         }
-        EventResult::Handled
+        if let Some(_buffer) = self.buffers.remove(&buffer_id) {
+            Ok(Value::Null)
+        } else {
+            Err("buffer not found".to_string())
+        }
+    }
+    #[service]
+    fn save(&mut self, args: &[Value]) -> Result<Value, String> {
+        let buffer_id: BufferId = get_arg(args, 0)?;
+        let Some(buffer) = self.buffers.get_mut(&buffer_id) else {
+            return Err("buffer not found".to_string());
+        };
+        buffer.save()?;
+        emit_event(
+            Event {
+                kind: EventKind("buffer_saved".to_string()),
+                data: to_value(&buffer_id).unwrap(),
+            },
+            DispatchDescriptor::Broadcast,
+        );
+        Ok(Value::Null)
     }
     #[service]
     fn lock(&mut self, args: &[Value]) -> Result<Value, String> {
