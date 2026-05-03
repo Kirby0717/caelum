@@ -165,10 +165,10 @@ dependencies = [
  "anyhow",
  "clm-buffer",
  "clm-core",
- "clm-editor-tui",
  "clm-keymap",
  "clm-modal",
- "clm-tui",
+ "clm-tui-compositor",
+ "clm-tui-driver",
 ]
 
 [[package]]
@@ -198,17 +198,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clm-editor-tui"
-version = "0.1.0-alpha.1"
-dependencies = [
- "anyhow",
- "clm-plugin-api",
- "crossterm",
- "serde",
- "unicode-width",
-]
-
-[[package]]
 name = "clm-keymap"
 version = "0.1.0-alpha.1"
 dependencies = [
@@ -231,8 +220,8 @@ name = "clm-modal"
 version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
- "clm-editor-tui",
  "clm-plugin-api",
+ "clm-tui-compositor",
  "unicode-width",
 ]
 
@@ -246,7 +235,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "clm-tui"
+name = "clm-tui-compositor"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "anyhow",
+ "clm-plugin-api",
+ "crossterm",
+ "serde",
+ "unicode-width",
+]
+
+[[package]]
+name = "clm-tui-driver"
 version = "0.1.0-alpha.1"
 dependencies = [
  "clm-plugin-api",

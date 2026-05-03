@@ -20,9 +20,9 @@ fn main() -> anyhow::Result<()> {
     let file = "./deny.toml";
     //let file = "E:/Word/言語学Aポスター/data/all8.txt";
 
-    let (plugin, id) = clm_editor_tui::EditorTuiPlugin::new();
+    let (plugin, id) = clm_tui_compositor::EditorTuiPlugin::new();
     add_plugin(plugin);
-    add_plugin(clm_tui::TuiPlugin::new());
+    add_plugin(clm_tui_driver::TuiPlugin::new());
     add_plugin(clm_buffer::BufferPlugin::new());
     add_plugin(clm_modal::ModalPlugin::new(Some(file), id));
     add_plugin(clm_keymap::KeymapPlugin::new());

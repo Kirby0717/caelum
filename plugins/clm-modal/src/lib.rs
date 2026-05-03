@@ -1,6 +1,6 @@
-use clm_editor_tui::PaneId;
 use clm_plugin_api::core::*;
 use clm_plugin_api::data::*;
+use clm_tui_compositor::PaneId;
 
 #[derive(Debug)]
 pub struct ModalPlugin {
@@ -387,7 +387,7 @@ impl ModalPlugin {
     }
     #[service(name = "render_pane")]
     fn render_pane(&mut self, args: &[Value]) -> Result<Value, String> {
-        use clm_editor_tui::*;
+        use clm_tui_compositor::*;
         let pane_id: PaneId = get_arg(args, 0)?;
         let w: u16 = get_arg(args, 1)?;
         let h: u16 = get_arg(args, 2)?;
@@ -419,8 +419,8 @@ impl ModalPlugin {
     }
 }
 impl ModalPlugin {
-    fn render(&mut self, size: (u16, u16)) -> anyhow::Result<Vec<clm_editor_tui::DrawCommand>> {
-        use clm_editor_tui::*;
+    fn render(&mut self, size: (u16, u16)) -> anyhow::Result<Vec<clm_tui_compositor::DrawCommand>> {
+        use clm_tui_compositor::*;
         use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
         let size = (size.0 as usize, size.1 as usize);

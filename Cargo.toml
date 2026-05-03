@@ -5,10 +5,10 @@ members = [
   "clm-macros",
   "clm-plugin-api",
   "plugins/clm-buffer",
-  "plugins/clm-editor-tui",
   "plugins/clm-keymap",
   "plugins/clm-modal",
-  "plugins/clm-tui",
+  "plugins/clm-tui-compositor",
+  "plugins/clm-tui-driver",
 ]
 resolver = "3"
 
