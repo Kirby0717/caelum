@@ -103,7 +103,7 @@ impl ModalPlugin {
         );
         emit_event(
             Event {
-                kind: EventKind("render".to_string()),
+                kind: EventKind("request_redraw".to_string()),
                 data: Value::Null,
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
@@ -176,7 +176,7 @@ impl ModalPlugin {
         self.clamp_cursor();
         emit_event(
             Event {
-                kind: EventKind("render".to_string()),
+                kind: EventKind("request_redraw".to_string()),
                 data: Value::Null,
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
@@ -302,7 +302,7 @@ impl ModalPlugin {
         self.clamp_cursor();
         emit_event(
             Event {
-                kind: EventKind("render".to_string()),
+                kind: EventKind("request_redraw".to_string()),
                 data: Value::Null,
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
@@ -357,7 +357,7 @@ impl ModalPlugin {
         }
         emit_event(
             Event {
-                kind: EventKind("render".to_string()),
+                kind: EventKind("request_redraw".to_string()),
                 data: Value::Null,
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
@@ -372,7 +372,7 @@ impl ModalPlugin {
         self.clamp_cursor();
         emit_event(
             Event {
-                kind: EventKind("render".to_string()),
+                kind: EventKind("request_redraw".to_string()),
                 data: Value::Null,
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),

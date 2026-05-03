@@ -42,7 +42,7 @@ impl Plugin for TuiPlugin {
                     TuiEvent::Resize(..) => {
                         emit_event_async(
                             Event {
-                                kind: EventKind("render".to_string()),
+                                kind: EventKind("request_redraw".to_string()),
                                 data: Value::Null,
                             },
                             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
@@ -58,7 +58,7 @@ impl Plugin for TuiPlugin {
 
         emit_event(
             Event {
-                kind: EventKind("render".to_string()),
+                kind: EventKind("request_redraw".to_string()),
                 data: Value::Null,
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),

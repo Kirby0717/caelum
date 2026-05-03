@@ -114,7 +114,7 @@ impl EditorTuiPlugin {
 #[clm_plugin_api::clm_handlers(name = "editor-tui")]
 impl EditorTuiPlugin {
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_render(&mut self, _data: &Value) -> EventResult {
+    fn on_request_redraw(&mut self, _data: &Value) -> EventResult {
         let Ok(terminal_size) = crossterm::terminal::size() else {
             return EventResult::Handled;
         };
