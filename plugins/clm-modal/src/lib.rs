@@ -1,3 +1,4 @@
+use clm_editor_tui::PaneId;
 use clm_plugin_api::core::*;
 use clm_plugin_api::data::*;
 
@@ -9,10 +10,11 @@ pub struct ModalPlugin {
     command_line: String,
     command_line_cursor: usize,
     buffer_id: BufferId,
+    pane_id: PaneId,
     key_holder: Option<LockToken>,
 }
 impl ModalPlugin {
-    pub fn new(path: Option<&str>) -> Self {
+    pub fn new(path: Option<&str>, pane_id: PaneId) -> Self {
         let mode = Mode::Normal;
         let cursor = CursorState::default();
         let command_line = String::new();
@@ -31,6 +33,7 @@ impl ModalPlugin {
             command_line,
             command_line_cursor: 0,
             buffer_id: BufferId(id),
+            pane_id,
             key_holder: None,
         }
     }
@@ -388,7 +391,11 @@ impl ModalPlugin {
         let pane_id: PaneId = get_arg(args, 0)?;
         let w: u16 = get_arg(args, 1)?;
         let h: u16 = get_arg(args, 2)?;
-        Ok(self.render((w, h)).map_err(|e| e.to_string())?.into())
+        if pane_id == self.pane_id {
+            Ok(self.render((w, h)).map_err(|e| e.to_string())?.into())
+        } else {
+            Ok(Value::Null)
+        }
     }
     #[service]
     fn mode(&self, _args: &[Value]) -> Result<Value, String> {

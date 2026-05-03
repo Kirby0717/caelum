@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 
 use clm_plugin_api::core::*;
 use clm_plugin_api::data::*;
-use clm_plugin_api::priority;
 use ropey::LineType::LF_CR;
 use ropey::Rope;
 
