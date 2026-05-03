@@ -677,6 +677,14 @@ where
         Value::List(value.iter().cloned().map(Value::from).collect())
     }
 }
+impl<T, const N: usize> From<[T; N]> for Value
+where
+    Value: From<T>,
+{
+    fn from(value: [T; N]) -> Self {
+        Value::List(value.into_iter().map(Value::from).collect())
+    }
+}
 impl<T> From<Vec<T>> for Value
 where
     Value: From<T>,
@@ -887,6 +895,21 @@ impl<T: TryFrom<Value, Error = ValueConvertError>> TryFrom<Value> for Vec<T> {
         }
     }
 }
+impl<T: TryFrom<Value, Error = ValueConvertError>, const N: usize> TryFrom<Value> for [T; N] {
+    type Error = ValueConvertError;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        if let Value::List(value) = value {
+            Ok(value
+                .into_iter()
+                .map(T::try_from)
+                .collect::<Result<Vec<T>, ValueConvertError>>()?
+                .try_into()
+                .map_err(|_| ValueConvertError("arity mismatch".to_string()))?)
+        } else {
+            Err(ValueConvertError("expected list".to_string()))
+        }
+    }
+}
 impl<T: TryFrom<Value, Error = ValueConvertError>> TryFrom<Value> for HashMap<String, T> {
     type Error = ValueConvertError;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
@@ -900,3 +923,40 @@ impl<T: TryFrom<Value, Error = ValueConvertError>> TryFrom<Value> for HashMap<St
         }
     }
 }
+
+macro_rules! impl_tuple_value {
+    ($($name:ident),+) => {
+        impl<$($name),+> From<($($name,)+)> for Value
+        where $(Value: From<$name>),+
+        {
+            fn from(value: ($($name,)+)) -> Self {
+                #[allow(non_snake_case)]
+                let ($($name,)+) = value;
+                Value::List(vec![$(Value::from($name)),+])
+            }
+        }
+        impl<$($name),+> TryFrom<Value> for ($($name,)+)
+        where $($name: TryFrom<Value, Error = ValueConvertError>),+
+        {
+            type Error = ValueConvertError;
+            fn try_from(value: Value) -> Result<Self, Self::Error> {
+                let Value::List(value) = value else {
+                    return Err(ValueConvertError("expected list".to_string()));
+                };
+                #[allow(non_snake_case)]
+                let Ok([$($name),+]): Result<[_; _], _> = value.try_into() else {
+                    return Err(ValueConvertError("arity mismatch".to_string()));
+                };
+                Ok(($($name.try_into()?,)+))
+            }
+        }
+    };
+}
+macro_rules! impl_tuples {
+    ($($acc:ident),* ;) => {};
+    ($($acc:ident),* ; $head:ident $(, $tail:ident)*) => {
+        impl_tuple_value!($($acc,)* $head);
+        impl_tuples!($($acc,)* $head ; $($tail),*);
+    };
+}
+impl_tuples!(;T1, T2, T3, T4, T5, T6, T7, T8, T9, T10, T11, T12);
