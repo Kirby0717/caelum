@@ -87,11 +87,11 @@ pub enum DrawCommand {
 }
 
 #[derive(Debug)]
-pub struct EditorTuiPlugin {
+pub struct TuiCompositorPlugin {
     layout: LayoutNode,
     next_id: usize,
 }
-impl EditorTuiPlugin {
+impl TuiCompositorPlugin {
     pub fn new() -> (Self, PaneId) {
         let id = PaneId(0);
         (
@@ -112,7 +112,7 @@ impl EditorTuiPlugin {
     }
 }
 #[clm_plugin_api::clm_handlers(name = "editor-tui")]
-impl EditorTuiPlugin {
+impl TuiCompositorPlugin {
     #[subscribe(priority = priority::DEFAULT)]
     fn on_request_redraw(&mut self, _data: &Value) -> EventResult {
         let Ok(terminal_size) = crossterm::terminal::size() else {
@@ -132,7 +132,7 @@ impl EditorTuiPlugin {
         EventResult::Handled
     }
 }
-impl Plugin for EditorTuiPlugin {
+impl Plugin for TuiCompositorPlugin {
     fn init(&mut self, reg: clm_plugin_api::core::PluginRegistrar) {
         Self::register_service_and_subscribe(&reg);
     }

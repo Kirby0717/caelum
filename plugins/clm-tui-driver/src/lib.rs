@@ -7,13 +7,13 @@ use crossterm::terminal::{
 };
 
 #[derive(Debug, Default)]
-pub struct TuiPlugin();
-impl TuiPlugin {
+pub struct TuiDriverPlugin();
+impl TuiDriverPlugin {
     pub fn new() -> Self {
         Self::default()
     }
 }
-impl Plugin for TuiPlugin {
+impl Plugin for TuiDriverPlugin {
     fn init(&mut self, _reg: clm_plugin_api::core::PluginRegistrar) {
         spawn_async(async {
             use crossterm::event::{Event as TuiEvent, read};
