@@ -9,4 +9,5 @@ repository.workspace = true
 
 [dependencies]
 clm-plugin-api = { path = "../../clm-plugin-api" }
+serde = { version = "1", features = ["derive"] }
 crossterm = "0.29"

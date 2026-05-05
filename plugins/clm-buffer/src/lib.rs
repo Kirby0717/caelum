@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use clm_plugin_api::core::*;
+use clm_plugin_api::data::id::*;
 use clm_plugin_api::data::*;
 use ropey::LineType::LF_CR;
 use ropey::Rope;
@@ -117,14 +118,22 @@ impl Buffer {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BufferPlugin {
     buffers: HashMap<BufferId, Buffer>,
     next_id: usize,
 }
+impl Default for BufferPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl BufferPlugin {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            buffers: HashMap::new(),
+            next_id: 0,
+        }
     }
 
     #[inline(always)]

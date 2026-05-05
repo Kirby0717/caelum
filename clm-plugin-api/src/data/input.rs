@@ -216,7 +216,7 @@ impl ElementState {
 
 /// キーイベント本体
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
-pub struct KeyEvent {
+pub struct RawKeyEvent {
     /// 物理キー（TUIではUnknownの場合あり）
     pub physical_key: PhysicalKey,
     /// 論理キー（レイアウト変換後）
@@ -231,4 +231,10 @@ pub struct KeyEvent {
     pub state: ElementState,
     /// リピートかどうか
     pub repeat: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
+pub struct KeyEvent {
+    pub key_event: RawKeyEvent,
+    pub focus_pane: super::id::PaneId,
 }

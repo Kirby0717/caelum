@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering::SeqCst;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use event_listener::Listener;
 
@@ -29,19 +30,20 @@ pub struct Service {
 thread_local! {
     static PLUGINS: RefCell<Vec<RefCell<Box<dyn Plugin>>>> = const { RefCell::new(Vec::new()) };
     static EVENT_QUEUE: RefCell<VecDeque<(Event, DispatchDescriptor)>> = const { RefCell::new(VecDeque::new()) };
-    static SUBSCRIPTIONS: RefCell<Vec<Option<Subscription>>> = const { RefCell::new(Vec::new()) };
+    static SUBSCRIPTIONS: RefCell<HashMap<SubscriptionId, Subscription>> = RefCell::new(HashMap::new());
     static RESOLVERS: RefCell<HashMap<SortKey, (PropertyKey, Resolver)>> = RefCell::new(HashMap::new());
     static COMMAND_QUEUE: RefCell<VecDeque<(String, Vec<String>)>> = const { RefCell::new(VecDeque::new()) };
     static COMMANDS: RefCell<HashMap<String, Command>> = RefCell::new(HashMap::new());
     static SERVICES: RefCell<HashMap<String, Service>> = RefCell::new(HashMap::new());
 }
+static NEXT_SUBSCRIPTIONS_ID: AtomicUsize = const { AtomicUsize::new(0) };
 
 static RUNNING: AtomicBool = AtomicBool::new(true);
 pub fn quit() {
-    RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
+    RUNNING.store(false, SeqCst);
 }
 pub fn is_running() -> bool {
-    RUNNING.load(std::sync::atomic::Ordering::SeqCst)
+    RUNNING.load(SeqCst)
 }
 pub fn uninit_plugins() {
     PLUGINS.with_borrow_mut(|plugins| {
@@ -65,13 +67,12 @@ pub fn emit_event(event: Event, descriptor: DispatchDescriptor) {
 }
 
 pub(crate) fn subscribe(subscription: Subscription) -> SubscriptionId {
-    let id = SUBSCRIPTIONS.with_borrow(|subscriptions| subscriptions.len());
-    let id = SubscriptionId(id);
-    SUBSCRIPTIONS.with_borrow_mut(|subscriptions| subscriptions.push(Some(subscription)));
+    let id = SubscriptionId(NEXT_SUBSCRIPTIONS_ID.fetch_add(1, SeqCst));
+    SUBSCRIPTIONS.with_borrow_mut(|subscriptions| subscriptions.insert(id, subscription));
     id
 }
 pub fn unsubscribe(id: SubscriptionId) {
-    SUBSCRIPTIONS.with_borrow_mut(|subscriptions| subscriptions.get_mut(id.0)?.take());
+    SUBSCRIPTIONS.with_borrow_mut(|subscriptions| subscriptions.remove(&id));
 }
 
 pub fn register_resolver(sort_key: SortKey, property_key: PropertyKey, resolver: Resolver) {
@@ -93,7 +94,7 @@ pub(crate) fn register_service(name: &str, service: Service) {
 pub fn query_service(name: &str, args: &[Value]) -> Result<Value, String> {
     let service = SERVICES
         .with_borrow(|services| services.get(name).copied())
-        .ok_or("service not found")?;
+        .ok_or_else(|| format!("service {name} not found"))?;
     PLUGINS.with_borrow(|plugins| {
         let plugin = plugins
             .get(service.plugin_id.0)
@@ -144,8 +145,7 @@ pub fn dispatch_next() -> bool {
                         .collect::<Vec<_>>();
                     // 購読者のフィルターと優先順位の計算
                     let mut subscriptions = subscriptions
-                        .iter_mut()
-                        .flatten()
+                        .values_mut()
                         .filter(|subscription| subscription.kind == event.kind)
                         .map(|subscription| {
                             let key = resolvers
@@ -185,7 +185,7 @@ pub fn dispatch_next() -> bool {
         // ブロードキャスト型
         DispatchDescriptor::Broadcast => {
             SUBSCRIPTIONS.with_borrow_mut(|s| {
-                for subscription in s.iter_mut().flatten() {
+                for subscription in s.values_mut() {
                     if subscription.kind != event.kind {
                         continue;
                     }
@@ -212,6 +212,8 @@ pub fn dispatch_next() -> bool {
                 if let Err(_e) = command(&args) {
                     // TODO: エラー出力
                 }
+            } else {
+                // TODO: エラー出力
             }
         });
     }

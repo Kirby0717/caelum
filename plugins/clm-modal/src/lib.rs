@@ -1,6 +1,6 @@
 use clm_plugin_api::core::*;
+use clm_plugin_api::data::id::*;
 use clm_plugin_api::data::*;
-use clm_tui_compositor::PaneId;
 
 #[derive(Debug)]
 pub struct ModalPlugin {
@@ -9,31 +9,28 @@ pub struct ModalPlugin {
     view_offset: (usize, usize),
     command_line: String,
     command_line_cursor: usize,
-    buffer_id: BufferId,
-    pane_id: PaneId,
+    buffer_id: Option<BufferId>,
+    pane_id: Option<PaneId>,
     key_holder: Option<LockToken>,
 }
+impl Default for ModalPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl ModalPlugin {
-    pub fn new(path: Option<&str>, pane_id: PaneId) -> Self {
+    pub fn new() -> Self {
         let mode = Mode::Normal;
         let cursor = CursorState::default();
         let command_line = String::new();
-        let id: usize = if let Some(path) = path {
-            query_service("buffer.open", &[path.into()])
-        } else {
-            query_service("buffer.create", &[])
-        }
-        .unwrap()
-        .try_into()
-        .unwrap();
         Self {
             mode,
             cursor,
             view_offset: (0, 0),
             command_line,
             command_line_cursor: 0,
-            buffer_id: BufferId(id),
-            pane_id,
+            buffer_id: None,
+            pane_id: None,
             key_holder: None,
         }
     }
@@ -367,7 +364,7 @@ impl ModalPlugin {
     #[service]
     fn switch_buffer(&mut self, args: &[Value]) -> Result<Value, String> {
         let buffer_id: BufferId = get_arg(args, 0)?;
-        self.buffer_id = buffer_id;
+        self.buffer_id = Some(buffer_id);
         self.cursor = CursorState::default();
         self.clamp_cursor();
         emit_event(
@@ -385,17 +382,35 @@ impl ModalPlugin {
         self.clamp_cursor();
         Ok(Value::Null)
     }
-    #[service(name = "render_pane")]
+    #[service]
+    fn attach_pane(&mut self, args: &[Value]) -> Result<Value, String> {
+        let pane_id: PaneId = get_arg(args, 0)?;
+        self.pane_id = Some(pane_id);
+        let path: Option<String> = get_arg(args, 1).unwrap_or_default();
+        let buffer_id: BufferId = if let Some(path) = path {
+            query_service("buffer.open", &[path.into()])?.try_into()?
+        } else {
+            query_service("buffer.create", &[])?.try_into()?
+        };
+        self.buffer_id = Some(buffer_id);
+        Ok(Value::Null)
+    }
+    #[service]
     fn render_pane(&mut self, args: &[Value]) -> Result<Value, String> {
         use clm_tui_compositor::*;
         let pane_id: PaneId = get_arg(args, 0)?;
-        let w: u16 = get_arg(args, 1)?;
-        let h: u16 = get_arg(args, 2)?;
-        if pane_id == self.pane_id {
-            Ok(self.render((w, h)).map_err(|e| e.to_string())?.into())
+        let size: (u16, u16) = get_arg(args, 1)?;
+        if pane_id == self.pane_id.unwrap() {
+            Ok(self.render(size).map_err(|e| e.to_string())?.into())
         } else {
             Ok(Value::Null)
         }
+    }
+    #[service]
+    fn split_pane(&mut self, args: &[Value]) -> Result<Value, String> {
+        let new_id: PaneId = get_arg(args, 0)?;
+        let source_id: PaneId = get_arg(args, 1)?;
+        Ok(Value::Null)
     }
     #[service]
     fn mode(&self, _args: &[Value]) -> Result<Value, String> {
@@ -460,7 +475,6 @@ impl ModalPlugin {
         }
 
         // バッファーの表示
-        let mut cell_grid = vec![];
         for row in 0..size.1 {
             let line: Option<String> = query_service_anyhow(
                 "buffer.line",
@@ -470,16 +484,14 @@ impl ModalPlugin {
             .try_into()
             .unwrap();
             if let Some(line) = line {
-                cell_grid.push(trim_display_range(
-                    &line,
-                    view_offset.0,
-                    view_offset.0 + size.0,
-                ));
+                commands.push(DrawCommand::DrawString {
+                    position: (0, row as u16),
+                    text: trim_display_range(&line, view_offset.0, view_offset.0 + size.0),
+                });
             } else {
                 break;
             }
         }
-        commands.push(DrawCommand::CellGrid(cell_grid));
         // ステータスラインの設定
         /*execute!(stdout(), MoveTo(0, size.1 - 1))?;
         match mode {

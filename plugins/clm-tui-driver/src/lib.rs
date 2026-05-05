@@ -1,10 +1,56 @@
 use std::io::stdout;
 
 use clm_plugin_api::core::*;
+use clm_plugin_api::{ConvertValue, priority};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
+pub struct CursorState {
+    position: (u16, u16),
+    style: CursorStyle,
+}
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ConvertValue,
+)]
+pub enum CursorStyle {
+    #[default]
+    DefaultUserShape,
+    BlinkingBlock,
+    SteadyBlock,
+    BlinkingUnderScore,
+    SteadyUnderScore,
+    BlinkingBar,
+    SteadyBar,
+}
+impl From<CursorStyle> for crossterm::cursor::SetCursorStyle {
+    fn from(value: CursorStyle) -> Self {
+        use CursorStyle::*;
+        match value {
+            DefaultUserShape => Self::DefaultUserShape,
+            BlinkingBlock => Self::BlinkingBlock,
+            SteadyBlock => Self::SteadyBlock,
+            BlinkingUnderScore => Self::BlinkingUnderScore,
+            SteadyUnderScore => Self::SteadyUnderScore,
+            BlinkingBar => Self::BlinkingBar,
+            SteadyBar => Self::SteadyBar,
+        }
+    }
+}
+#[derive(Debug, Clone, Serialize, Deserialize, ConvertValue)]
+pub enum DrawCommand {
+    DrawString {
+        position: (u16, u16),
+        text: String,
+    },
+    SetCursor {
+        position: (u16, u16),
+        style: CursorStyle,
+    },
+}
 
 #[derive(Debug, Default)]
 pub struct TuiDriverPlugin();
@@ -13,8 +59,23 @@ impl TuiDriverPlugin {
         Self::default()
     }
 }
+#[clm_plugin_api::clm_handlers(name = "tui-driver")]
+impl TuiDriverPlugin {
+    #[subscribe(priority = priority::DEFAULT)]
+    fn on_request_redraw(&mut self, _data: &Value) -> EventResult {
+        let terminal_size = crossterm::terminal::size().unwrap();
+        let commands: Vec<DrawCommand> =
+            query_service("tui-compositor.build_frame", &[terminal_size.into()])
+                .unwrap()
+                .try_into()
+                .unwrap();
+        draw(commands).unwrap();
+        EventResult::Handled
+    }
+}
 impl Plugin for TuiDriverPlugin {
-    fn init(&mut self, _reg: clm_plugin_api::core::PluginRegistrar) {
+    fn init(&mut self, reg: clm_plugin_api::core::PluginRegistrar) {
+        Self::register_service_and_subscribe(&reg);
         spawn_async(async {
             use crossterm::event::{Event as TuiEvent, read};
 
@@ -33,8 +94,8 @@ impl Plugin for TuiDriverPlugin {
                     TuiEvent::Key(key_event) => {
                         emit_event_async(
                             Event {
-                                kind: EventKind("key_input".to_string()),
-                                data: convert_key_event(key_event).into(),
+                                kind: EventKind("raw_key_input".to_string()),
+                                data: convert_raw_key_event(key_event).into(),
                             },
                             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
                         );
@@ -70,12 +131,14 @@ impl Plugin for TuiDriverPlugin {
     }
 }
 
-fn convert_key_event(key_event: crossterm::event::KeyEvent) -> clm_plugin_api::input::KeyEvent {
-    use clm_plugin_api::input::*;
+fn convert_raw_key_event(
+    key_event: crossterm::event::KeyEvent,
+) -> clm_plugin_api::data::input::RawKeyEvent {
+    use clm_plugin_api::data::input::*;
     use crossterm::event::{
         KeyCode as TuiKeyCode, KeyEventKind as TuiKeyState, KeyModifiers as TuiModifiers,
     };
-    KeyEvent {
+    RawKeyEvent {
         physical_key: PhysicalKey::Unknown,
         logical_key: match key_event.code {
             TuiKeyCode::Backspace => LogicalKey::Named(NamedKey::Backspace),
@@ -131,4 +194,37 @@ fn convert_key_event(key_event: crossterm::event::KeyEvent) -> clm_plugin_api::i
         },
         repeat: matches!(key_event.kind, TuiKeyState::Release),
     }
+}
+
+fn draw(commands: Vec<DrawCommand>) -> std::io::Result<()> {
+    use std::io::stdout;
+
+    use crossterm::cursor::{Hide, MoveTo, SetCursorStyle, Show};
+    use crossterm::execute;
+    use crossterm::style::Print;
+    use crossterm::terminal::{Clear, ClearType};
+
+    execute!(stdout(), Clear(ClearType::All))?;
+    let mut cursor = None;
+    for command in commands {
+        match command {
+            DrawCommand::DrawString { position, text } => {
+                execute!(stdout(), MoveTo(position.0, position.1), Print(text),)?;
+            }
+            DrawCommand::SetCursor { position, style } => {
+                cursor = Some((position, style));
+            }
+        }
+    }
+    if let Some((position, style)) = cursor {
+        execute!(
+            stdout(),
+            Show,
+            MoveTo(position.0, position.1),
+            SetCursorStyle::from(style),
+        )?;
+    } else {
+        execute!(stdout(), Hide)?;
+    }
+    Ok(())
 }

@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use clm_plugin_api::core::*;
+use clm_plugin_api::data::id::PaneId;
+use clm_plugin_api::data::input::*;
 use clm_plugin_api::data::*;
-use clm_plugin_api::input::*;
 use clm_plugin_api::priority;
 
 #[derive(Debug)]
@@ -75,7 +76,7 @@ struct KeyPattern {
     pub alt: bool,
 }
 impl KeyPattern {
-    fn from_key_event(event: &KeyEvent) -> Option<Self> {
+    fn from_key_event(event: &RawKeyEvent) -> Option<Self> {
         let key = match &event.logical_key {
             LogicalKey::Character(s) => KeyPatternKey::Char(s.chars().next()?.to_ascii_lowercase()),
             LogicalKey::Named(n) => KeyPatternKey::Named(*n),
@@ -283,12 +284,12 @@ struct Keymap {
     pub head: Option<Weak<TrieNode>>,
 }
 impl Keymap {
-    fn new(toml_table: toml::Table, mode: &str) -> Result<Self, ParseError> {
+    fn new(toml_table: toml::Table) -> Result<Self, ParseError> {
         let modes = toml_table
             .into_iter()
             .map(|(mode, keymap)| Ok((mode, TrieNode::from_toml(keymap)?)))
             .collect::<Result<HashMap<_, _>, ParseError>>()?;
-        let root = modes.get(mode).map(Rc::downgrade);
+        let root = modes.get(&Mode::default().to_string()).map(Rc::downgrade);
         let head = root.clone();
         Ok(Self { modes, root, head })
     }
@@ -334,29 +335,31 @@ fn toml_to_value(toml: toml::Value) -> Value {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct KeymapPlugin {
     keymap: Keymap,
+}
+impl Default for KeymapPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 impl KeymapPlugin {
     pub fn new() -> Self {
         let config_path = "./keymap.toml";
         let config_file = std::fs::read_to_string(config_path).unwrap();
-        let mode: Mode = query_service("modal.mode", &[])
-            .unwrap()
-            .try_into()
-            .unwrap_or_default();
-        let keymap = Keymap::new(toml::from_str(&config_file).unwrap(), &mode.to_string()).unwrap();
+        let keymap = Keymap::new(toml::from_str(&config_file).unwrap()).unwrap();
         Self { keymap }
     }
 }
 #[clm_plugin_api::clm_handlers(name = "keymap")]
 impl KeymapPlugin {
-    #[subscribe(kind = "key_input",priority = priority::DEFAULT - 1)]
+    #[subscribe(kind = "key_input", priority = priority::DEFAULT - 1)]
     fn on_key_input_editing(&mut self, data: &Value) -> EventResult {
         let Ok(key_event) = KeyEvent::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
+        let key_event = key_event.key_event;
         let mode = query_service("modal.mode", &[])
             .ok()
             .and_then(|mode| mode.try_into().ok())
@@ -411,10 +414,10 @@ impl KeymapPlugin {
         let Ok(key_event) = KeyEvent::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
-        let Some(key) = KeyPattern::from_key_event(&key_event) else {
+        let Some(key) = KeyPattern::from_key_event(&key_event.key_event) else {
             return EventResult::Propagate;
         };
-        if key_event.state.is_pressed() {
+        if key_event.key_event.state.is_pressed() {
             if let Some(bindings) = self.keymap.feed(&key) {
                 for binding in bindings {
                     match binding {
@@ -452,5 +455,16 @@ impl KeymapPlugin {
 impl Plugin for KeymapPlugin {
     fn init(&mut self, reg: PluginRegistrar) {
         Self::register_service_and_subscribe(&reg);
+        reg.subscribe(
+            "key_input",
+            HashMap::from([
+                (
+                    PropertyKey("priority".to_string()),
+                    priority::DEFAULT.into(),
+                ),
+                (PropertyKey("pane_id".to_string()), PaneId(0).into()),
+            ]),
+            Self::ON_KEY_INPUT,
+        );
     }
 }

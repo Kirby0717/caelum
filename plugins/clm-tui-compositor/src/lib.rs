@@ -1,11 +1,13 @@
-use core::range::RangeInclusive;
+use std::collections::HashMap;
+use std::ops::RangeBounds;
+use std::range::RangeInclusive;
 
 use clm_plugin_api::core::*;
-use clm_plugin_api::{ConvertValue, priority};
-use serde::{Deserialize, Serialize};
+use clm_plugin_api::data::id::*;
+use clm_plugin_api::data::input::*;
+use clm_plugin_api::priority;
+pub use clm_tui_driver::{CursorStyle, DrawCommand};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
-pub struct PaneId(pub usize);
 #[derive(Debug, Clone, Copy)]
 pub struct Rect {
     pub offset: (u16, u16),
@@ -19,29 +21,36 @@ pub enum Direction {
 #[derive(Debug, Clone, Copy)]
 pub struct SizeConstraint {
     weight: f64,
-    range: RangeInclusive<u16>,
+    range: (RangeInclusive<u16>, RangeInclusive<u16>),
 }
 impl Default for SizeConstraint {
     fn default() -> Self {
-        Self::new(1.0, 0..u16::MAX)
+        Self::new(1.0, (.., ..))
     }
 }
+fn range_bounds_into_range(range: impl std::ops::RangeBounds<u16>) -> RangeInclusive<u16> {
+    use std::ops::Bound;
+    let start = match range.start_bound() {
+        Bound::Included(&n) => n,
+        Bound::Excluded(&n) => n.checked_add(1).expect("start overflow"),
+        Bound::Unbounded => u16::MIN,
+    };
+    let last = match range.end_bound() {
+        Bound::Included(&n) => n,
+        Bound::Excluded(&n) => n.checked_sub(1).expect("end underflow (empty range)"),
+        Bound::Unbounded => u16::MAX,
+    };
+
+    RangeInclusive { start, last }
+}
 impl SizeConstraint {
-    pub fn new(weight: f64, range: impl std::ops::RangeBounds<u16>) -> Self {
-        use std::ops::Bound;
-        let start = match range.start_bound() {
-            Bound::Included(&n) => n,
-            Bound::Excluded(&n) => n.checked_add(1).expect("start overflow"),
-            Bound::Unbounded => u16::MIN,
-        };
-        let last = match range.end_bound() {
-            Bound::Included(&n) => n,
-            Bound::Excluded(&n) => n.checked_sub(1).expect("end underflow (empty range)"),
-            Bound::Unbounded => u16::MAX,
-        };
+    pub fn new(weight: f64, range: (impl RangeBounds<u16>, impl RangeBounds<u16>)) -> Self {
         SizeConstraint {
-            weight,
-            range: RangeInclusive { start, last },
+            weight: weight.max(0.0),
+            range: (
+                range_bounds_into_range(range.0),
+                range_bounds_into_range(range.1),
+            ),
         }
     }
 }
@@ -53,54 +62,51 @@ pub enum LayoutNode {
         children: Vec<(SizeConstraint, LayoutNode)>,
     },
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
-pub enum CursorStyle {
-    DefaultUserShape,
-    BlinkingBlock,
-    SteadyBlock,
-    BlinkingUnderScore,
-    SteadyUnderScore,
-    BlinkingBar,
-    SteadyBar,
-}
-impl From<CursorStyle> for crossterm::cursor::SetCursorStyle {
-    fn from(value: CursorStyle) -> Self {
-        use CursorStyle::*;
-        match value {
-            DefaultUserShape => Self::DefaultUserShape,
-            BlinkingBlock => Self::BlinkingBlock,
-            SteadyBlock => Self::SteadyBlock,
-            BlinkingUnderScore => Self::BlinkingUnderScore,
-            SteadyUnderScore => Self::SteadyUnderScore,
-            BlinkingBar => Self::BlinkingBar,
-            SteadyBar => Self::SteadyBar,
+impl LayoutNode {
+    fn resolve_layout(&self, offset: (u16, u16), total_size: (u16, u16)) -> Vec<(PaneId, Rect)> {
+        match self {
+            Self::Pane(id) => vec![(
+                *id,
+                Rect {
+                    offset,
+                    size: total_size,
+                },
+            )],
+            Self::Split {
+                direction,
+                children,
+            } => match direction {
+                Direction::Horizontal => {
+                    todo!()
+                }
+                Direction::Vertical => {
+                    todo!()
+                }
+            },
         }
     }
-}
-#[derive(Debug, Clone, Serialize, Deserialize, ConvertValue)]
-pub enum DrawCommand {
-    CellGrid(Vec<String>),
-    SetCursor {
-        position: (u16, u16),
-        style: CursorStyle,
-    },
 }
 
 #[derive(Debug)]
 pub struct TuiCompositorPlugin {
     layout: LayoutNode,
+    pane_handlers: HashMap<PaneId, String>,
+    focus: PaneId,
     next_id: usize,
 }
 impl TuiCompositorPlugin {
-    pub fn new() -> (Self, PaneId) {
+    pub fn new(handler: &str, args: &[Value]) -> Self {
         let id = PaneId(0);
-        (
-            Self {
-                layout: LayoutNode::Pane(id),
-                next_id: 1,
-            },
-            id,
-        )
+        let mut attach_args = vec![id.into()];
+        attach_args.extend_from_slice(args);
+        query_service(&format!("{handler}.attach_pane"), &attach_args).unwrap();
+
+        Self {
+            layout: LayoutNode::Pane(id),
+            pane_handlers: HashMap::from([(id, handler.to_string())]),
+            focus: id,
+            next_id: 1,
+        }
     }
     pub fn get_next_id(&mut self) -> PaneId {
         let id = PaneId(self.next_id);
@@ -108,70 +114,106 @@ impl TuiCompositorPlugin {
         id
     }
     pub fn resolve_layout(&self, total_size: (u16, u16)) -> Vec<(PaneId, Rect)> {
-        todo!()
+        self.layout.resolve_layout((0, 0), total_size)
     }
 }
-#[clm_plugin_api::clm_handlers(name = "editor-tui")]
+#[clm_plugin_api::clm_handlers(name = "tui-compositor")]
 impl TuiCompositorPlugin {
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_request_redraw(&mut self, _data: &Value) -> EventResult {
-        let Ok(terminal_size) = crossterm::terminal::size() else {
-            return EventResult::Handled;
+    fn on_raw_key_input(&mut self, data: &Value) -> EventResult {
+        let Ok(key_event) = RawKeyEvent::try_from(data.clone()) else {
+            return EventResult::Propagate;
         };
-        let pane_size = (terminal_size.0, terminal_size.1 - 1);
-        let Ok(commands) = query_service(
-            "render_pane",
-            &[PaneId(0).into(), pane_size.0.into(), pane_size.1.into()],
-        ) else {
-            return EventResult::Handled;
-        };
-        let Ok(commands) = commands.try_into() else {
-            return EventResult::Handled;
-        };
-        draw((0, 0), pane_size, commands).unwrap();
+
+        emit_event(
+            Event {
+                kind: EventKind("key_input".to_string()),
+                data: KeyEvent {
+                    key_event,
+                    focus_pane: self.focus,
+                }
+                .into(),
+            },
+            DispatchDescriptor::Consumable(vec![
+                SortKey("priority".to_string()),
+                SortKey("focus_pane".to_string()),
+            ]),
+        );
         EventResult::Handled
+    }
+    #[service]
+    fn build_frame(&self, args: &[Value]) -> Result<Value, String> {
+        let terminal_size: (u16, u16) = get_arg(args, 0)?;
+        let layout = self.resolve_layout(terminal_size);
+
+        let mut commands = vec![];
+        for (pane_id, rect) in layout {
+            let handler = &self.pane_handlers[&pane_id];
+            let pane_commands: Vec<DrawCommand> = query_service(
+                &format!("{handler}.render_pane"),
+                &[pane_id.into(), rect.size.into()],
+            )?
+            .try_into()?;
+            commands.extend(translate_and_clip(
+                pane_commands,
+                rect,
+                pane_id == self.focus,
+            ));
+        }
+        Ok(commands.into())
+    }
+    #[service]
+    fn focus_pane(&self, _args: &[Value]) -> Result<Value, String> {
+        Ok(self.focus.into())
     }
 }
 impl Plugin for TuiCompositorPlugin {
     fn init(&mut self, reg: clm_plugin_api::core::PluginRegistrar) {
         Self::register_service_and_subscribe(&reg);
+        register_resolver(
+            SortKey("focus_pane".to_string()),
+            PropertyKey("pane_id".to_string()),
+            Box::new(|pane_id: Option<&Value>| {
+                let Some(pane_id) = pane_id else {
+                    return i64::MIN;
+                };
+                let Ok(pane_id): Result<PaneId, _> = pane_id.clone().try_into() else {
+                    return i64::MIN;
+                };
+                let Ok(focus_pane) = query_service("tui-compositor.focus_pane", &[]) else {
+                    return i64::MIN;
+                };
+                let Ok(focus_pane): Result<PaneId, _> = focus_pane.try_into() else {
+                    return i64::MIN;
+                };
+                if pane_id == focus_pane { 1 } else { 0 }
+            }) as Resolver,
+        );
     }
 }
 
-fn draw(
-    offset: (u16, u16),
-    pane_size: (u16, u16),
-    commands: Vec<DrawCommand>,
-) -> std::io::Result<()> {
-    use std::io::stdout;
-
-    use crossterm::cursor::{MoveTo, RestorePosition, SavePosition, SetCursorStyle};
-    use crossterm::execute;
-    use crossterm::style::Print;
-    use crossterm::terminal::{Clear, ClearType};
-
-    execute!(stdout(), Clear(ClearType::All))?;
-    for command in commands {
-        match command {
-            DrawCommand::CellGrid(grid) => {
-                execute!(stdout(), SavePosition)?;
-                for (y, mut line) in grid.into_iter().enumerate() {
+fn translate_and_clip(commands: Vec<DrawCommand>, rect: Rect, is_focus: bool) -> Vec<DrawCommand> {
+    commands
+        .into_iter()
+        .filter_map(|mut command| {
+            match &mut command {
+                DrawCommand::DrawString { position, text } => {
                     use unicode_width::UnicodeWidthStr;
-                    while (pane_size.0 as usize) < line.width() {
-                        line.pop();
+                    while rect.size.0 < position.0 + text.width() as u16 {
+                        text.pop();
                     }
-                    execute!(stdout(), MoveTo(0, offset.1 + y as u16), Print(line))?;
+                    position.0 += rect.offset.0;
+                    position.1 += rect.offset.1;
                 }
-                execute!(stdout(), RestorePosition)?;
+                DrawCommand::SetCursor { position, .. } => {
+                    if !is_focus {
+                        return None;
+                    }
+                    position.0 += rect.offset.0;
+                    position.1 += rect.offset.1;
+                }
             }
-            DrawCommand::SetCursor { position, style } => {
-                execute!(
-                    stdout(),
-                    MoveTo(position.0, position.1),
-                    SetCursorStyle::from(style)
-                )?;
-            }
-        }
-    }
-    Ok(())
+            Some(command)
+        })
+        .collect()
 }

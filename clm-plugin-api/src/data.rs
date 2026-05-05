@@ -1,6 +1,10 @@
 use clm_macros::ConvertValueInApi;
 use serde::{Deserialize, Serialize};
 
+pub mod id;
+pub mod input;
+pub mod tui_layout;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ConvertValueInApi)]
 #[serde(rename_all = "snake_case")]
 pub enum Mode {
@@ -56,8 +60,6 @@ fn one() -> usize {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
-pub struct BufferId(pub usize);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValueInApi)]
 pub struct LockToken(pub u64);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
@@ -86,18 +88,18 @@ pub enum CommandLineAction {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
 pub enum BufferChange {
     Insert {
-        buffer_id: BufferId,
+        buffer_id: id::BufferId,
         start_line_idx: usize,
         start_byte_col_idx: usize,
         end_line_idx: usize,
         end_byte_col_idx: usize,
     },
     Remove {
-        buffer_id: BufferId,
+        buffer_id: id::BufferId,
         line_idx: usize,
         byte_col_idx: usize,
         text: String,
     },
-    Save(BufferId),
-    Reset(BufferId),
+    Save(id::BufferId),
+    Reset(id::BufferId),
 }

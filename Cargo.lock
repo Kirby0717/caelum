@@ -238,10 +238,8 @@ dependencies = [
 name = "clm-tui-compositor"
 version = "0.1.0-alpha.1"
 dependencies = [
- "anyhow",
  "clm-plugin-api",
- "crossterm",
- "serde",
+ "clm-tui-driver",
  "unicode-width",
 ]
 
@@ -251,6 +249,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "clm-plugin-api",
  "crossterm",
+ "serde",
 ]
 
 [[package]]
