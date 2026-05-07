@@ -533,7 +533,11 @@ impl ModalPlugin {
     fn split_pane(&mut self, args: &[Value]) -> Result<Value, String> {
         let new_id: PaneId = get_arg(args, 0)?;
         let source_id: PaneId = get_arg(args, 1)?;
-        panic!("new_id: {new_id:?}, source_id: {source_id:?}");
+        let Some(pane_state) = self.panes.get(&source_id) else {
+            return Err(format!("modal don't have pane: {source_id:?}"));
+        };
+        self.panes
+            .insert(new_id, PaneState::new(pane_state.buffer_id));
         Ok(Value::Null)
     }
     #[service]
@@ -547,6 +551,13 @@ impl ModalPlugin {
     fn pane_inactive(&mut self, args: &[Value]) -> Result<Value, String> {
         let pane_id: PaneId = get_arg(args, 0)?;
         assert_eq!(self.active_pane, Some(pane_id));
+        if let Some(key) = self.key_holder {
+            let state = self.active_pane_state().unwrap();
+            if let Err(e) = query_service("buffer.unlock", &[state.buffer_id.into(), key.into()]) {
+                panic!("fail buffer unlock: {e}");
+            }
+        }
+        self.mode = Mode::Normal;
         self.active_pane = None;
         Ok(Value::Null)
     }

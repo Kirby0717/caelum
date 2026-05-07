@@ -1,12 +1,33 @@
+mod utility;
+
 use std::collections::HashMap;
 use std::ops::RangeBounds;
 use std::range::RangeInclusive;
 
 use clm_plugin_api::core::*;
 use clm_plugin_api::data::id::*;
-use clm_plugin_api::data::input::*;
-use clm_plugin_api::priority;
 pub use clm_tui_driver::{CursorStyle, DrawCommand};
+
+fn apportion(a: &[f64], l: u16) -> Vec<u16> {
+    let n = a.len();
+    let s = a.iter().sum::<f64>();
+    let q = a.iter().map(|&a_i| l as f64 * a_i / s).collect::<Vec<_>>();
+
+    let mut b = q.iter().map(|&q_i| q_i as u16).collect::<Vec<_>>();
+    let t = b.iter().sum::<u16>();
+
+    let rest = l - t;
+    let mut d = (0..n).collect::<Vec<_>>();
+    d.sort_by(|&i, &j| {
+        let ri = q[i] - b[i] as f64;
+        let rj = q[j] - b[j] as f64;
+        rj.partial_cmp(&ri).unwrap()
+    });
+    for &i in &d[..rest as usize] {
+        b[i] += 1;
+    }
+    b
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Rect {
@@ -20,12 +41,12 @@ pub enum Direction {
 }
 #[derive(Debug, Clone, Copy)]
 pub struct SizeConstraint {
-    weight: f64,
+    weight: (f64, f64),
     range: (RangeInclusive<u16>, RangeInclusive<u16>),
 }
 impl Default for SizeConstraint {
     fn default() -> Self {
-        Self::new(1.0, (.., ..))
+        Self::new((1.0, 1.0), (.., ..))
     }
 }
 fn range_bounds_into_range(range: impl std::ops::RangeBounds<u16>) -> RangeInclusive<u16> {
@@ -44,9 +65,12 @@ fn range_bounds_into_range(range: impl std::ops::RangeBounds<u16>) -> RangeInclu
     RangeInclusive { start, last }
 }
 impl SizeConstraint {
-    pub fn new(weight: f64, range: (impl RangeBounds<u16>, impl RangeBounds<u16>)) -> Self {
+    pub fn new(weight: (f64, f64), range: (impl RangeBounds<u16>, impl RangeBounds<u16>)) -> Self {
         SizeConstraint {
-            weight: weight.max(0.0),
+            weight: (
+                weight.0.clamp(f64::EPSILON, f64::MAX),
+                weight.1.clamp(f64::EPSILON, f64::MAX),
+            ),
             range: (
                 range_bounds_into_range(range.0),
                 range_bounds_into_range(range.1),
@@ -63,10 +87,14 @@ pub enum LayoutNode {
     },
 }
 impl LayoutNode {
-    fn resolve_layout(&self, offset: (u16, u16), total_size: (u16, u16)) -> Vec<(PaneId, Rect)> {
+    fn resolve_layout(
+        &self,
+        mut offset: (u16, u16),
+        total_size: (u16, u16),
+    ) -> Vec<(PaneId, Rect)> {
         match self {
-            Self::Pane(id) => vec![(
-                *id,
+            Self::Pane(pane_id) => vec![(
+                *pane_id,
                 Rect {
                     offset,
                     size: total_size,
@@ -77,10 +105,120 @@ impl LayoutNode {
                 children,
             } => match direction {
                 Direction::Horizontal => {
-                    todo!()
+                    let weights = children
+                        .iter()
+                        .map(|(size_constraint, _)| {
+                            (size_constraint.weight.0, size_constraint.range.0)
+                        })
+                        .collect::<Vec<_>>();
+                    let width = utility::distribute(&weights, total_size.0);
+                    children
+                        .iter()
+                        .zip(width.iter())
+                        .flat_map(|((_, node), &width)| {
+                            let rects = node.resolve_layout(offset, (width, total_size.1));
+                            offset.0 += width;
+                            rects
+                        })
+                        .collect()
                 }
                 Direction::Vertical => {
-                    todo!()
+                    let weights = children
+                        .iter()
+                        .map(|(size_constraint, _)| {
+                            (size_constraint.weight.1, size_constraint.range.1)
+                        })
+                        .collect::<Vec<_>>();
+                    let height = utility::distribute(&weights, total_size.1);
+                    children
+                        .iter()
+                        .zip(height.iter())
+                        .flat_map(|((_, node), &height)| {
+                            let rects = node.resolve_layout(offset, (total_size.0, height));
+                            offset.1 += height;
+                            rects
+                        })
+                        .collect()
+                }
+            },
+        }
+    }
+    fn split(&mut self, new_id: PaneId, source_id: PaneId) {
+        match self {
+            LayoutNode::Pane(pane_id) => {
+                if source_id == *pane_id {
+                    *self = LayoutNode::Split {
+                        direction: Direction::Horizontal,
+                        children: vec![
+                            (SizeConstraint::default(), LayoutNode::Pane(*pane_id)),
+                            (SizeConstraint::default(), LayoutNode::Pane(new_id)),
+                        ],
+                    };
+                }
+            }
+            LayoutNode::Split {
+                direction,
+                children,
+            } => match direction {
+                Direction::Horizontal => {
+                    let position = children
+                        .iter()
+                        .position(|(_, node)| matches!(node, LayoutNode::Pane(pane_id) if *pane_id == source_id));
+                    if let Some(position) = position {
+                        children.insert(
+                            position + 1,
+                            (SizeConstraint::default(), LayoutNode::Pane(new_id)),
+                        );
+                    } else {
+                        for (_, node) in children {
+                            node.split(new_id, source_id);
+                        }
+                    }
+                }
+                Direction::Vertical => {
+                    for (_, node) in children {
+                        node.split(new_id, source_id);
+                    }
+                }
+            },
+        }
+    }
+    fn vsplit(&mut self, new_id: PaneId, source_id: PaneId) {
+        match self {
+            LayoutNode::Pane(pane_id) => {
+                if source_id == *pane_id {
+                    *self = LayoutNode::Split {
+                        direction: Direction::Vertical,
+                        children: vec![
+                            (SizeConstraint::default(), LayoutNode::Pane(*pane_id)),
+                            (SizeConstraint::default(), LayoutNode::Pane(new_id)),
+                        ],
+                    };
+                }
+            }
+            LayoutNode::Split {
+                direction,
+                children,
+            } => match direction {
+                Direction::Horizontal => {
+                    for (_, node) in children {
+                        node.vsplit(new_id, source_id);
+                    }
+                }
+                Direction::Vertical => {
+                    let position = children
+                        .iter()
+                        .position(|(_, node)| matches!(node, LayoutNode::Pane(pane_id) if *pane_id == source_id));
+                    if let Some(position) = position {
+                        children.insert(
+                            position + 1,
+                            (SizeConstraint::default(), LayoutNode::Pane(new_id)),
+                        );
+                    } else {
+                        for (_, node) in children {
+                            node.vsplit(new_id, source_id);
+                        }
+                    }
                 }
             },
         }
@@ -142,16 +280,34 @@ impl TuiCompositorPlugin {
         Ok(commands.into())
     }
     #[service]
-    fn vsplit(&mut self, _args: &[Value]) -> Result<Value, String> {
+    fn split(&mut self, _args: &[Value]) -> Result<Value, String> {
+        let source_id = self.focus;
         let new_id = self.get_next_id();
-        let handler = &self.pane_handlers[&self.focus];
+        let handler = &self.pane_handlers[&source_id];
         if query_service(
             &format!("{handler}.split_pane"),
-            &[new_id.into(), self.focus.into()],
+            &[new_id.into(), source_id.into()],
         )
         .is_ok()
         {
-            todo!("ペインの分割、もし新しい方にフォーカスするならその通知");
+            self.pane_handlers.insert(new_id, handler.clone());
+            self.layout.split(new_id, source_id);
+        }
+        Ok(Value::Null)
+    }
+    #[service]
+    fn vsplit(&mut self, _args: &[Value]) -> Result<Value, String> {
+        let source_id = self.focus;
+        let new_id = self.get_next_id();
+        let handler = &self.pane_handlers[&source_id];
+        if query_service(
+            &format!("{handler}.split_pane"),
+            &[new_id.into(), source_id.into()],
+        )
+        .is_ok()
+        {
+            self.pane_handlers.insert(new_id, handler.clone());
+            self.layout.vsplit(new_id, source_id);
         }
         Ok(Value::Null)
     }
@@ -183,8 +339,14 @@ impl Plugin for TuiCompositorPlugin {
             }) as Resolver,
         );
         register_command(
-            "vs",
-            //"vsplit",
+            "split",
+            Box::new(|_| {
+                query_service("tui-compositor.split", &[])?;
+                Ok(())
+            }),
+        );
+        register_command(
+            "vsplit",
             Box::new(|_| {
                 query_service("tui-compositor.vsplit", &[])?;
                 Ok(())
