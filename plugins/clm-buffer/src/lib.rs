@@ -169,20 +169,34 @@ impl BufferPlugin {
     fn line(&self, args: &[Value]) -> Result<Value, String> {
         let buffer = self.get_buffer(args)?;
         let line_idx: usize = get_arg(args, 1)?;
+        let len_lines = buffer.rope().len_lines(LF_CR);
         Ok(buffer
             .rope()
             .get_line(line_idx, LF_CR)
-            .map(|line| line.to_string())
+            .map(|line| {
+                let mut line = line.to_string();
+                if line_idx + 1 != len_lines {
+                    line.pop();
+                }
+                line
+            })
             .into())
     }
     #[service]
     fn line_len_bytes(&self, args: &[Value]) -> Result<Value, String> {
         let buffer = self.get_buffer(args)?;
         let line_idx: usize = get_arg(args, 1)?;
+        let len_lines = buffer.rope().len_lines(LF_CR);
         Ok(buffer
             .rope()
             .get_line(line_idx, LF_CR)
-            .map(|line| line.len())
+            .map(|line| {
+                if line_idx + 1 == len_lines {
+                    line.len()
+                } else {
+                    line.len() - 1
+                }
+            })
             .into())
     }
     #[service]
@@ -190,10 +204,15 @@ impl BufferPlugin {
         let buffer = self.get_buffer(args)?;
         let start_line_idx: usize = get_arg(args, 1)?;
         let end_line_idx: usize = get_arg(args, 2)?;
+        let len_lines = buffer.rope().len_lines(LF_CR);
         let mut lines = vec![];
         for line_idx in start_line_idx..end_line_idx {
             if let Some(line) = buffer.rope().get_line(line_idx, LF_CR) {
-                lines.push(Value::Str(line.to_string()));
+                let mut line = line.to_string();
+                if line_idx + 1 != len_lines {
+                    line.pop();
+                }
+                lines.push(line);
             } else {
                 break;
             }
@@ -263,14 +282,14 @@ impl BufferPlugin {
         emit_event(
             Event {
                 kind: EventKind("buffer_changed".to_string()),
-                data: to_value(&BufferChange::Insert {
+                data: BufferChange::Insert {
                     buffer_id,
                     start_line_idx: line_idx,
                     start_byte_col_idx: byte_col_idx,
                     end_line_idx: line_idx,
                     end_byte_col_idx: byte_col_idx + text.len(),
-                })
-                .unwrap(),
+                }
+                .into(),
             },
             DispatchDescriptor::Broadcast,
         );
@@ -302,13 +321,13 @@ impl BufferPlugin {
         emit_event(
             Event {
                 kind: EventKind("buffer_changed".to_string()),
-                data: to_value(&BufferChange::Remove {
+                data: BufferChange::Remove {
                     buffer_id,
                     line_idx: start_line_idx,
                     byte_col_idx: start_byte_col_idx,
                     text: remove_text,
-                })
-                .unwrap(),
+                }
+                .into(),
             },
             DispatchDescriptor::Broadcast,
         );
@@ -325,7 +344,7 @@ impl BufferPlugin {
         emit_event(
             Event {
                 kind: EventKind("buffer_changed".to_string()),
-                data: to_value(&BufferChange::Reset(buffer_id)).unwrap(),
+                data: BufferChange::Reset(buffer_id).into(),
             },
             DispatchDescriptor::Broadcast,
         );
@@ -343,7 +362,7 @@ impl BufferPlugin {
         emit_event(
             Event {
                 kind: EventKind("buffer_changed".to_string()),
-                data: to_value(&BufferChange::Reset(buffer_id)).unwrap(),
+                data: BufferChange::Reset(buffer_id).into(),
             },
             DispatchDescriptor::Broadcast,
         );
@@ -374,7 +393,7 @@ impl BufferPlugin {
         emit_event(
             Event {
                 kind: EventKind("buffer_saved".to_string()),
-                data: to_value(&buffer_id).unwrap(),
+                data: buffer_id.into(),
             },
             DispatchDescriptor::Broadcast,
         );

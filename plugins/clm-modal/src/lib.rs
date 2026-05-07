@@ -1,52 +1,36 @@
+use std::collections::HashMap;
+
 use clm_plugin_api::core::*;
 use clm_plugin_api::data::id::*;
 use clm_plugin_api::data::*;
 
 #[derive(Debug)]
-pub struct ModalPlugin {
-    mode: Mode,
-    cursor: CursorState,
-    view_offset: (usize, usize),
-    command_line: String,
-    command_line_cursor: usize,
-    buffer_id: Option<BufferId>,
-    pane_id: Option<PaneId>,
-    key_holder: Option<LockToken>,
+pub struct PaneState {
+    pub buffer_id: BufferId,
+    pub cursor: CursorState,
+    pub view_offset: (usize, usize),
 }
-impl Default for ModalPlugin {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-impl ModalPlugin {
-    pub fn new() -> Self {
-        let mode = Mode::Normal;
-        let cursor = CursorState::default();
-        let command_line = String::new();
+impl PaneState {
+    fn new(buffer_id: BufferId) -> Self {
         Self {
-            mode,
-            cursor,
+            buffer_id,
+            cursor: CursorState::default(),
             view_offset: (0, 0),
-            command_line,
-            command_line_cursor: 0,
-            buffer_id: None,
-            pane_id: None,
-            key_holder: None,
         }
     }
-    pub fn len_lines(&self) -> usize {
+    fn len_lines(&self) -> usize {
         query_service("buffer.len_lines", &[self.buffer_id.into()])
             .unwrap()
             .try_into()
             .unwrap()
     }
-    pub fn line(&self, row: usize) -> Option<String> {
+    fn line(&self, row: usize) -> Option<String> {
         query_service("buffer.line", &[self.buffer_id.into(), row.into()])
             .unwrap()
             .try_into()
             .unwrap()
     }
-    pub fn line_len_bytes(&self, row: usize) -> usize {
+    fn line_len_bytes(&self, row: usize) -> Option<usize> {
         query_service(
             "buffer.line_len_bytes",
             &[self.buffer_id.into(), row.into()],
@@ -55,393 +39,30 @@ impl ModalPlugin {
         .try_into()
         .unwrap()
     }
-
-    pub fn clamp_cursor(&mut self) {
-        let max_row = self.len_lines().saturating_sub(1);
+    fn clamp_cursor(&mut self, mode: Mode) {
+        use unicode_width::UnicodeWidthChar;
         let mut cursor = self.cursor;
+        let max_row = self.len_lines().saturating_sub(1);
         cursor.row = cursor.row.min(max_row);
-        let max_col = match self.mode {
-            Mode::Insert => self.line_len_bytes(cursor.row),
-            _ => self.line_len_bytes(cursor.row).saturating_sub(1),
+        let line = self.line(cursor.row).unwrap();
+        let max_col = match mode {
+            Mode::Insert => line.len(),
+            _ => line.len() - line.chars().next_back().and_then(char::width).unwrap_or(0),
         };
         cursor.byte_col = cursor.byte_col.min(max_col);
         self.cursor = cursor;
     }
-}
-
-#[clm_plugin_api::clm_handlers(name = "modal")]
-impl ModalPlugin {
-    #[service]
-    fn set_mode(&mut self, args: &[Value]) -> Result<Value, String> {
-        let mode: Mode = get_arg(args, 0)?;
-        if self.mode != Mode::Insert && mode == Mode::Insert {
-            let key: LockToken =
-                query_service("buffer.lock", &[self.buffer_id.into()])?.try_into()?;
-            self.key_holder = Some(key);
-        }
-        if self.mode == Mode::Insert && mode != Mode::Insert {
-            let key = self.key_holder.unwrap();
-            if let Err(e) = query_service("buffer.unlock", &[self.buffer_id.into(), key.into()]) {
-                panic!("{e}");
-            }
-        }
-        if self.mode == Mode::Command && mode != Mode::Command {
-            self.command_line_cursor = 0;
-            self.command_line.clear();
-        }
-        self.mode = mode;
-        self.clamp_cursor();
-        emit_event(
-            Event {
-                kind: EventKind("mode_changed".to_string()),
-                data: to_value(&mode)?,
-            },
-            DispatchDescriptor::Broadcast,
-        );
-        emit_event(
-            Event {
-                kind: EventKind("request_redraw".to_string()),
-                data: Value::Null,
-            },
-            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-        );
-        Ok(Value::Null)
-    }
-    #[service]
-    fn quit(&mut self, _args: &[Value]) -> Result<Value, String> {
-        quit();
-        Ok(Value::Null)
-    }
-    #[service]
-    fn cursor_move(&mut self, args: &[Value]) -> Result<Value, String> {
-        let mv: CursorMove = get_arg(args, 0)?;
-        match self.mode {
-            Mode::Normal | Mode::Insert => match mv {
-                CursorMove::Up { count } => {
-                    let row = self.cursor.row;
-                    self.cursor.row = row.saturating_sub(count);
-                }
-                CursorMove::Down { count } => {
-                    self.cursor.row += count;
-                }
-                CursorMove::Left { count } => {
-                    if count == 0 {
-                        return Ok(Value::Null);
-                    }
-                    let line = self.line(self.cursor.row).unwrap();
-                    let left = &line[..self.cursor.byte_col];
-                    if let Some((i, _)) = left.char_indices().nth_back(count - 1) {
-                        self.cursor.byte_col = i;
-                    } else {
-                        self.cursor.byte_col = 0;
-                    }
-                }
-                CursorMove::Right { count } => {
-                    let line = self.line(self.cursor.row).unwrap();
-                    let right = &line[self.cursor.byte_col..];
-                    if let Some((i, _)) = right.char_indices().nth(count) {
-                        self.cursor.byte_col += i;
-                    } else {
-                        self.cursor.byte_col = line.len();
-                    }
-                }
-                _ => {}
-            },
-            Mode::Command => match mv {
-                CursorMove::Left { count } => {
-                    if count == 0 {
-                        return Ok(Value::Null);
-                    }
-                    let left = &self.command_line[..self.command_line_cursor];
-                    if let Some((i, _)) = left.char_indices().nth_back(count - 1) {
-                        self.command_line_cursor = i;
-                    } else {
-                        self.command_line_cursor = 0;
-                    }
-                }
-                CursorMove::Right { count } => {
-                    let right = &self.command_line[self.command_line_cursor..];
-                    if let Some((i, _)) = right.char_indices().nth(count) {
-                        self.command_line_cursor += i;
-                    } else {
-                        self.command_line_cursor = self.command_line.len();
-                    }
-                }
-                _ => {}
-            },
-        }
-        self.clamp_cursor();
-        emit_event(
-            Event {
-                kind: EventKind("request_redraw".to_string()),
-                data: Value::Null,
-            },
-            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-        );
-        Ok(Value::Null)
-    }
-    #[service]
-    fn edit(&mut self, args: &[Value]) -> Result<Value, String> {
-        let edit: EditAction = get_arg(args, 0)?;
-        let mut cursor = self.cursor;
-        match edit {
-            EditAction::InsertText(text) => {
-                query_service(
-                    "buffer.insert",
-                    &[
-                        self.buffer_id.into(),
-                        cursor.row.into(),
-                        cursor.byte_col.into(),
-                        text.clone().into(),
-                        self.key_holder.into(),
-                    ],
-                )?;
-                cursor.byte_col += text.len();
-            }
-            EditAction::DeleteCharForward => {
-                let line = self.line(cursor.row).unwrap();
-                let right_one = &line[cursor.byte_col..].chars().next();
-                if let Some(c) = right_one {
-                    let next_size = c.len_utf8();
-                    query_service(
-                        "buffer.remove",
-                        &[
-                            self.buffer_id.into(),
-                            cursor.row.into(),
-                            cursor.byte_col.into(),
-                            cursor.row.into(),
-                            (cursor.byte_col + next_size).into(),
-                            self.key_holder.into(),
-                        ],
-                    )?;
-                } else {
-                    if let Some(next_line) = self.line(cursor.row + 1)
-                        && let Some(first) = next_line.chars().next()
-                    {
-                        query_service(
-                            "buffer.remove",
-                            &[
-                                self.buffer_id.into(),
-                                (cursor.row + 1).into(),
-                                0.into(),
-                                (cursor.row + 1).into(),
-                                first.len_utf8().into(),
-                                self.key_holder.into(),
-                            ],
-                        )?;
-                    }
-                }
-            }
-            EditAction::DeleteCharBackward => {
-                if cursor.row == 0 && cursor.byte_col == 0 {
-                    return Ok(Value::Null);
-                }
-
-                let line = self.line(cursor.row).unwrap();
-                let left_one = &line[..cursor.byte_col].chars().next_back();
-                if let Some(c) = left_one {
-                    let prev_size = c.len_utf8();
-                    query_service(
-                        "buffer.remove",
-                        &[
-                            self.buffer_id.into(),
-                            cursor.row.into(),
-                            (cursor.byte_col - prev_size).into(),
-                            cursor.row.into(),
-                            cursor.byte_col.into(),
-                            self.key_holder.into(),
-                        ],
-                    )?;
-                    cursor.byte_col -= prev_size;
-                } else {
-                    if let Some(prev_line) = self.line(cursor.row - 1)
-                        && let Some(last) = prev_line.chars().next_back()
-                    {
-                        query_service(
-                            "buffer.remove",
-                            &[
-                                self.buffer_id.into(),
-                                (cursor.row - 1).into(),
-                                (prev_line.len() - last.len_utf8()).into(),
-                                (cursor.row - 1).into(),
-                                prev_line.len().into(),
-                                self.key_holder.into(),
-                            ],
-                        )?;
-                        cursor.row -= 1;
-                        cursor.byte_col = prev_line.len() - last.len_utf8();
-                    }
-                }
-            }
-            EditAction::NewLine => {
-                query_service(
-                    "buffer.insert",
-                    &[
-                        self.buffer_id.into(),
-                        cursor.row.into(),
-                        cursor.byte_col.into(),
-                        "\n".to_string().into(),
-                        self.key_holder.into(),
-                    ],
-                )?;
-                cursor.row += 1;
-                cursor.byte_col = 0;
-            }
-            EditAction::Undo => {
-                query_service("buffer.undo", &[self.buffer_id.into()])?;
-            }
-            EditAction::Redo => {
-                query_service("buffer.redo", &[self.buffer_id.into()])?;
-            }
-            _ => {}
-        }
-        self.cursor = cursor;
-        self.clamp_cursor();
-        emit_event(
-            Event {
-                kind: EventKind("request_redraw".to_string()),
-                data: Value::Null,
-            },
-            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-        );
-        Ok(Value::Null)
-    }
-    #[service]
-    fn command_line_action(&mut self, args: &[Value]) -> Result<Value, String> {
-        let cmd_action: CommandLineAction = get_arg(args, 0)?;
-        let command_line = &mut self.command_line;
-        let cursor = self.command_line_cursor;
-        match cmd_action {
-            CommandLineAction::InsertText(text) => {
-                command_line.insert_str(cursor, &text);
-                self.command_line_cursor += text.len();
-            }
-            CommandLineAction::DeleteCharForward => {
-                if command_line.len() < cursor {
-                    return Ok(Value::Null);
-                }
-                let next_size = command_line[cursor..].chars().next().unwrap().len_utf8();
-                command_line.drain(cursor..cursor + next_size);
-            }
-            CommandLineAction::DeleteCharBackward => {
-                if cursor != 0 {
-                    return Ok(Value::Null);
-                }
-                let prev_size = command_line[..cursor]
-                    .chars()
-                    .next_back()
-                    .unwrap()
-                    .len_utf8();
-                command_line.drain(cursor - prev_size..cursor);
-                self.command_line_cursor -= prev_size;
-            }
-            CommandLineAction::Execute => {
-                let parsed = command_line
-                    .split_whitespace()
-                    .map(String::from)
-                    .collect::<Vec<_>>();
-                if !parsed.is_empty() {
-                    execute_command(&parsed[0], &parsed[1..]);
-                }
-                self.command_line_cursor = 0;
-                command_line.clear();
-                self.mode = Mode::Normal;
-            }
-            CommandLineAction::Clear => {
-                self.command_line_cursor = 0;
-                command_line.clear();
-            }
-        }
-        emit_event(
-            Event {
-                kind: EventKind("request_redraw".to_string()),
-                data: Value::Null,
-            },
-            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-        );
-        Ok(Value::Null)
-    }
-    #[service]
-    fn switch_buffer(&mut self, args: &[Value]) -> Result<Value, String> {
-        let buffer_id: BufferId = get_arg(args, 0)?;
-        self.buffer_id = Some(buffer_id);
-        self.cursor = CursorState::default();
-        self.clamp_cursor();
-        emit_event(
-            Event {
-                kind: EventKind("request_redraw".to_string()),
-                data: Value::Null,
-            },
-            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-        );
-        Ok(Value::Null)
-    }
-    #[service]
-    fn buffer_changed(&mut self, args: &[Value]) -> Result<Value, String> {
-        let _buffer_change: BufferChange = get_arg(args, 0)?;
-        self.clamp_cursor();
-        Ok(Value::Null)
-    }
-    #[service]
-    fn attach_pane(&mut self, args: &[Value]) -> Result<Value, String> {
-        let pane_id: PaneId = get_arg(args, 0)?;
-        self.pane_id = Some(pane_id);
-        let path: Option<String> = get_arg(args, 1).unwrap_or_default();
-        let buffer_id: BufferId = if let Some(path) = path {
-            query_service("buffer.open", &[path.into()])?.try_into()?
-        } else {
-            query_service("buffer.create", &[])?.try_into()?
-        };
-        self.buffer_id = Some(buffer_id);
-        Ok(Value::Null)
-    }
-    #[service]
-    fn render_pane(&mut self, args: &[Value]) -> Result<Value, String> {
-        use clm_tui_compositor::*;
-        let pane_id: PaneId = get_arg(args, 0)?;
-        let size: (u16, u16) = get_arg(args, 1)?;
-        if pane_id == self.pane_id.unwrap() {
-            Ok(self.render(size).map_err(|e| e.to_string())?.into())
-        } else {
-            Ok(Value::Null)
-        }
-    }
-    #[service]
-    fn split_pane(&mut self, args: &[Value]) -> Result<Value, String> {
-        let new_id: PaneId = get_arg(args, 0)?;
-        let source_id: PaneId = get_arg(args, 1)?;
-        Ok(Value::Null)
-    }
-    #[service]
-    fn mode(&self, _args: &[Value]) -> Result<Value, String> {
-        Ok(self.mode.into())
-    }
-    #[service]
-    fn cursor(&self, _args: &[Value]) -> Result<Value, String> {
-        Ok(self.cursor.into())
-    }
-    #[service]
-    fn command_line(&self, _args: &[Value]) -> Result<Value, String> {
-        Ok(self.command_line.clone().into())
-    }
-    #[service]
-    fn command_line_cursor(&self, _args: &[Value]) -> Result<Value, String> {
-        Ok(self.command_line_cursor.into())
-    }
-    #[service]
-    fn buffer_id(&self, _args: &[Value]) -> Result<Value, String> {
-        Ok(self.buffer_id.into())
-    }
-}
-impl ModalPlugin {
-    fn render(&mut self, size: (u16, u16)) -> anyhow::Result<Vec<clm_tui_compositor::DrawCommand>> {
+    fn render(
+        &mut self,
+        mode: Mode,
+        size: (u16, u16),
+    ) -> Result<Vec<clm_tui_compositor::DrawCommand>, String> {
         use clm_tui_compositor::*;
         use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
         let size = (size.0 as usize, size.1 as usize);
         let mut commands = vec![];
 
-        let mode = self.mode;
         let cursor = self.cursor;
         let buffer_id = self.buffer_id;
         let view_offset = &mut self.view_offset;
@@ -518,6 +139,428 @@ impl ModalPlugin {
             _ => {}
         }
         Ok(commands)
+    }
+}
+#[derive(Debug)]
+pub struct ModalPlugin {
+    mode: Mode,
+    command_line: String,
+    command_line_cursor: usize,
+    panes: HashMap<PaneId, PaneState>,
+    active_pane: Option<PaneId>,
+    key_holder: Option<LockToken>,
+}
+impl Default for ModalPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl ModalPlugin {
+    pub fn new() -> Self {
+        let mode = Mode::Normal;
+        let command_line = String::new();
+        Self {
+            mode,
+            command_line,
+            command_line_cursor: 0,
+            panes: HashMap::new(),
+            active_pane: None,
+            key_holder: None,
+        }
+    }
+    fn active_pane_state(&self) -> Option<&PaneState> {
+        self.panes.get(&self.active_pane?)
+    }
+    fn active_pane_state_mut(&mut self) -> Option<&mut PaneState> {
+        self.panes.get_mut(&self.active_pane?)
+    }
+}
+
+#[clm_plugin_api::clm_handlers(name = "modal")]
+impl ModalPlugin {
+    #[service]
+    fn quit(&mut self, _args: &[Value]) -> Result<Value, String> {
+        quit();
+        Ok(Value::Null)
+    }
+    #[service]
+    fn set_mode(&mut self, args: &[Value]) -> Result<Value, String> {
+        let mode: Mode = get_arg(args, 0)?;
+        if let Some(state) = self.active_pane_state() {
+            let buffer_id = state.buffer_id;
+            if self.mode != Mode::Insert && mode == Mode::Insert {
+                let key: LockToken =
+                    query_service("buffer.lock", &[buffer_id.into()])?.try_into()?;
+                self.key_holder = Some(key);
+            }
+            if self.mode == Mode::Insert && mode != Mode::Insert {
+                let key = self.key_holder.unwrap();
+                if let Err(e) = query_service("buffer.unlock", &[buffer_id.into(), key.into()]) {
+                    panic!("fail buffer unlock: {e}");
+                }
+            }
+        }
+        if self.mode == Mode::Command && mode != Mode::Command {
+            self.command_line_cursor = 0;
+            self.command_line.clear();
+        }
+        self.mode = mode;
+        if let Some(state) = self.active_pane_state_mut() {
+            state.clamp_cursor(mode);
+        }
+        emit_event(
+            Event {
+                kind: EventKind("mode_changed".to_string()),
+                data: mode.into(),
+            },
+            DispatchDescriptor::Broadcast,
+        );
+        emit_event(
+            Event {
+                kind: EventKind("request_redraw".to_string()),
+                data: Value::Null,
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
+        Ok(Value::Null)
+    }
+    #[service]
+    fn cursor_move(&mut self, args: &[Value]) -> Result<Value, String> {
+        let mv: CursorMove = get_arg(args, 0)?;
+        match self.mode {
+            mode @ (Mode::Normal | Mode::Insert) => {
+                let Some(state) = self.active_pane_state_mut() else {
+                    return Err("no active pane".to_string());
+                };
+                match mv {
+                    CursorMove::Up { count } => {
+                        let row = state.cursor.row;
+                        state.cursor.row = row.saturating_sub(count);
+                    }
+                    CursorMove::Down { count } => {
+                        state.cursor.row += count;
+                    }
+                    CursorMove::Left { count } => {
+                        if count == 0 {
+                            return Ok(Value::Null);
+                        }
+                        let line = state.line(state.cursor.row).unwrap();
+                        let left = &line[..state.cursor.byte_col];
+                        if let Some((i, _)) = left.char_indices().nth_back(count - 1) {
+                            state.cursor.byte_col = i;
+                        } else {
+                            state.cursor.byte_col = 0;
+                        }
+                    }
+                    CursorMove::Right { count } => {
+                        let line = state.line(state.cursor.row).unwrap();
+                        let right = &line[state.cursor.byte_col..];
+                        if let Some((i, _)) = right.char_indices().nth(count) {
+                            state.cursor.byte_col += i;
+                        } else {
+                            state.cursor.byte_col = line.len();
+                        }
+                    }
+                    _ => {}
+                }
+                state.clamp_cursor(mode);
+            }
+            Mode::Command => match mv {
+                CursorMove::Left { count } => {
+                    if count == 0 {
+                        return Ok(Value::Null);
+                    }
+                    let left = &self.command_line[..self.command_line_cursor];
+                    if let Some((i, _)) = left.char_indices().nth_back(count - 1) {
+                        self.command_line_cursor = i;
+                    } else {
+                        self.command_line_cursor = 0;
+                    }
+                }
+                CursorMove::Right { count } => {
+                    let right = &self.command_line[self.command_line_cursor..];
+                    if let Some((i, _)) = right.char_indices().nth(count) {
+                        self.command_line_cursor += i;
+                    } else {
+                        self.command_line_cursor = self.command_line.len();
+                    }
+                }
+                _ => {}
+            },
+        }
+        emit_event(
+            Event {
+                kind: EventKind("request_redraw".to_string()),
+                data: Value::Null,
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
+        Ok(Value::Null)
+    }
+    #[service]
+    fn edit(&mut self, args: &[Value]) -> Result<Value, String> {
+        let edit: EditAction = get_arg(args, 0)?;
+        let key_holder = self.key_holder;
+        let mode = self.mode;
+        let Some(state) = self.active_pane_state_mut() else {
+            return Err("no active pane".to_string());
+        };
+        let mut cursor = state.cursor;
+        match edit {
+            EditAction::InsertText(text) => {
+                query_service(
+                    "buffer.insert",
+                    &[
+                        state.buffer_id.into(),
+                        cursor.row.into(),
+                        cursor.byte_col.into(),
+                        text.clone().into(),
+                        key_holder.into(),
+                    ],
+                )?;
+                cursor.byte_col += text.len();
+            }
+            EditAction::DeleteCharForward => {
+                let line = state.line(cursor.row).unwrap();
+                let right_one = &line[cursor.byte_col..].chars().next();
+                if let Some(c) = right_one {
+                    // 通常
+                    let next_size = c.len_utf8();
+                    query_service(
+                        "buffer.remove",
+                        &[
+                            state.buffer_id.into(),
+                            cursor.row.into(),
+                            cursor.byte_col.into(),
+                            cursor.row.into(),
+                            (cursor.byte_col + next_size).into(),
+                            key_holder.into(),
+                        ],
+                    )?;
+                } else {
+                    // 行末
+                    if cursor.row + 1 < state.len_lines() {
+                        query_service(
+                            "buffer.remove",
+                            &[
+                                state.buffer_id.into(),
+                                cursor.row.into(),
+                                cursor.byte_col.into(),
+                                (cursor.row + 1).into(),
+                                0_usize.into(),
+                                key_holder.into(),
+                            ],
+                        )?;
+                    }
+                }
+            }
+            EditAction::DeleteCharBackward => {
+                if cursor.row == 0 && cursor.byte_col == 0 {
+                    return Ok(Value::Null);
+                }
+
+                let line = state.line(cursor.row).unwrap();
+                let left_one = &line[..cursor.byte_col].chars().next_back();
+                if let Some(c) = left_one {
+                    // 通常
+                    let prev_size = c.len_utf8();
+                    query_service(
+                        "buffer.remove",
+                        &[
+                            state.buffer_id.into(),
+                            cursor.row.into(),
+                            (cursor.byte_col - prev_size).into(),
+                            cursor.row.into(),
+                            cursor.byte_col.into(),
+                            key_holder.into(),
+                        ],
+                    )?;
+                    cursor.byte_col -= prev_size;
+                } else {
+                    // 行頭
+                    if cursor.row != 0 {
+                        let prev_line_len_bytes = state.line_len_bytes(cursor.row - 1).unwrap();
+                        query_service(
+                            "buffer.remove",
+                            &[
+                                state.buffer_id.into(),
+                                (cursor.row - 1).into(),
+                                prev_line_len_bytes.into(),
+                                cursor.row.into(),
+                                0_usize.into(),
+                                key_holder.into(),
+                            ],
+                        )?;
+                        cursor.row -= 1;
+                        cursor.byte_col = prev_line_len_bytes;
+                    }
+                }
+            }
+            EditAction::NewLine => {
+                query_service(
+                    "buffer.insert",
+                    &[
+                        state.buffer_id.into(),
+                        cursor.row.into(),
+                        cursor.byte_col.into(),
+                        "\n".to_string().into(),
+                        key_holder.into(),
+                    ],
+                )?;
+                cursor.row += 1;
+                cursor.byte_col = 0;
+            }
+            EditAction::Undo => {
+                query_service("buffer.undo", &[state.buffer_id.into()])?;
+            }
+            EditAction::Redo => {
+                query_service("buffer.redo", &[state.buffer_id.into()])?;
+            }
+            _ => {}
+        }
+        state.cursor = cursor;
+        state.clamp_cursor(mode);
+        emit_event(
+            Event {
+                kind: EventKind("request_redraw".to_string()),
+                data: Value::Null,
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
+        Ok(Value::Null)
+    }
+    #[service]
+    fn command_line_action(&mut self, args: &[Value]) -> Result<Value, String> {
+        let cmd_action: CommandLineAction = get_arg(args, 0)?;
+        let command_line = &mut self.command_line;
+        let cursor = self.command_line_cursor;
+        match cmd_action {
+            CommandLineAction::InsertText(text) => {
+                command_line.insert_str(cursor, &text);
+                self.command_line_cursor += text.len();
+            }
+            CommandLineAction::DeleteCharForward => {
+                if command_line.len() < cursor {
+                    return Ok(Value::Null);
+                }
+                let next_size = command_line[cursor..].chars().next().unwrap().len_utf8();
+                command_line.drain(cursor..cursor + next_size);
+            }
+            CommandLineAction::DeleteCharBackward => {
+                if cursor != 0 {
+                    return Ok(Value::Null);
+                }
+                let prev_size = command_line[..cursor]
+                    .chars()
+                    .next_back()
+                    .unwrap()
+                    .len_utf8();
+                command_line.drain(cursor - prev_size..cursor);
+                self.command_line_cursor -= prev_size;
+            }
+            CommandLineAction::Execute => {
+                let parsed = command_line
+                    .split_whitespace()
+                    .map(String::from)
+                    .collect::<Vec<_>>();
+                if !parsed.is_empty() {
+                    execute_command(&parsed[0], &parsed[1..]);
+                }
+                self.command_line_cursor = 0;
+                command_line.clear();
+                self.mode = Mode::Normal;
+            }
+            CommandLineAction::Clear => {
+                self.command_line_cursor = 0;
+                command_line.clear();
+            }
+        }
+        emit_event(
+            Event {
+                kind: EventKind("request_redraw".to_string()),
+                data: Value::Null,
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
+        Ok(Value::Null)
+    }
+    #[service]
+    fn switch_buffer(&mut self, args: &[Value]) -> Result<Value, String> {
+        let mode = self.mode;
+        let Some(state) = self.active_pane_state_mut() else {
+            return Err("no active pane".to_string());
+        };
+        let buffer_id: BufferId = get_arg(args, 0)?;
+        if state.buffer_id == buffer_id {
+            return Ok(Value::Null);
+        }
+        state.buffer_id = buffer_id;
+        state.cursor = CursorState::default();
+        state.clamp_cursor(mode);
+        emit_event(
+            Event {
+                kind: EventKind("request_redraw".to_string()),
+                data: Value::Null,
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
+        Ok(Value::Null)
+    }
+    #[service]
+    fn attach_pane(&mut self, args: &[Value]) -> Result<Value, String> {
+        let pane_id: PaneId = get_arg(args, 0)?;
+        let path: Option<String> = get_arg(args, 1).unwrap_or_default();
+        let buffer_id: BufferId = if let Some(path) = path {
+            query_service("buffer.open", &[path.into()])?.try_into()?
+        } else {
+            query_service("buffer.create", &[])?.try_into()?
+        };
+        self.panes.insert(pane_id, PaneState::new(buffer_id));
+        Ok(Value::Null)
+    }
+    #[service]
+    fn render_pane(&mut self, args: &[Value]) -> Result<Value, String> {
+        let pane_id: PaneId = get_arg(args, 0)?;
+        let size: (u16, u16) = get_arg(args, 1)?;
+        Ok(self
+            .panes
+            .get_mut(&pane_id)
+            .unwrap()
+            .render(self.mode, size)?
+            .into())
+    }
+    #[service]
+    fn split_pane(&mut self, args: &[Value]) -> Result<Value, String> {
+        let new_id: PaneId = get_arg(args, 0)?;
+        let source_id: PaneId = get_arg(args, 1)?;
+        panic!("new_id: {new_id:?}, source_id: {source_id:?}");
+        Ok(Value::Null)
+    }
+    #[service]
+    fn pane_active(&mut self, args: &[Value]) -> Result<Value, String> {
+        assert!(self.active_pane.is_none());
+        let pane_id: PaneId = get_arg(args, 0)?;
+        self.active_pane = Some(pane_id);
+        Ok(Value::Null)
+    }
+    #[service]
+    fn pane_inactive(&mut self, args: &[Value]) -> Result<Value, String> {
+        let pane_id: PaneId = get_arg(args, 0)?;
+        assert_eq!(self.active_pane, Some(pane_id));
+        self.active_pane = None;
+        Ok(Value::Null)
+    }
+    #[service]
+    fn mode(&self, _args: &[Value]) -> Result<Value, String> {
+        Ok(self.mode.into())
+    }
+    #[service]
+    fn command_line(&self, _args: &[Value]) -> Result<Value, String> {
+        Ok(self.command_line.clone().into())
+    }
+    #[service]
+    fn command_line_cursor(&self, _args: &[Value]) -> Result<Value, String> {
+        Ok(self.command_line_cursor.into())
     }
 }
 

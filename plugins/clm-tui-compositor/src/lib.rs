@@ -100,6 +100,7 @@ impl TuiCompositorPlugin {
         let mut attach_args = vec![id.into()];
         attach_args.extend_from_slice(args);
         query_service(&format!("{handler}.attach_pane"), &attach_args).unwrap();
+        query_service(&format!("{handler}.pane_active"), &[id.into()]).unwrap();
 
         Self {
             layout: LayoutNode::Pane(id),
@@ -119,28 +120,6 @@ impl TuiCompositorPlugin {
 }
 #[clm_plugin_api::clm_handlers(name = "tui-compositor")]
 impl TuiCompositorPlugin {
-    #[subscribe(priority = priority::DEFAULT)]
-    fn on_raw_key_input(&mut self, data: &Value) -> EventResult {
-        let Ok(key_event) = RawKeyEvent::try_from(data.clone()) else {
-            return EventResult::Propagate;
-        };
-
-        emit_event(
-            Event {
-                kind: EventKind("key_input".to_string()),
-                data: KeyEvent {
-                    key_event,
-                    focus_pane: self.focus,
-                }
-                .into(),
-            },
-            DispatchDescriptor::Consumable(vec![
-                SortKey("priority".to_string()),
-                SortKey("focus_pane".to_string()),
-            ]),
-        );
-        EventResult::Handled
-    }
     #[service]
     fn build_frame(&self, args: &[Value]) -> Result<Value, String> {
         let terminal_size: (u16, u16) = get_arg(args, 0)?;
@@ -161,6 +140,20 @@ impl TuiCompositorPlugin {
             ));
         }
         Ok(commands.into())
+    }
+    #[service]
+    fn vsplit(&mut self, _args: &[Value]) -> Result<Value, String> {
+        let new_id = self.get_next_id();
+        let handler = &self.pane_handlers[&self.focus];
+        if query_service(
+            &format!("{handler}.split_pane"),
+            &[new_id.into(), self.focus.into()],
+        )
+        .is_ok()
+        {
+            todo!("ペインの分割、もし新しい方にフォーカスするならその通知");
+        }
+        Ok(Value::Null)
     }
     #[service]
     fn focus_pane(&self, _args: &[Value]) -> Result<Value, String> {
@@ -188,6 +181,14 @@ impl Plugin for TuiCompositorPlugin {
                 };
                 if pane_id == focus_pane { 1 } else { 0 }
             }) as Resolver,
+        );
+        register_command(
+            "vs",
+            //"vsplit",
+            Box::new(|_| {
+                query_service("tui-compositor.vsplit", &[])?;
+                Ok(())
+            }),
         );
     }
 }

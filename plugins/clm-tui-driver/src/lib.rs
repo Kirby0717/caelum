@@ -94,8 +94,8 @@ impl Plugin for TuiDriverPlugin {
                     TuiEvent::Key(key_event) => {
                         emit_event_async(
                             Event {
-                                kind: EventKind("raw_key_input".to_string()),
-                                data: convert_raw_key_event(key_event).into(),
+                                kind: EventKind("key_input".to_string()),
+                                data: convert_key_event(key_event).into(),
                             },
                             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
                         );
@@ -131,14 +131,14 @@ impl Plugin for TuiDriverPlugin {
     }
 }
 
-fn convert_raw_key_event(
+fn convert_key_event(
     key_event: crossterm::event::KeyEvent,
-) -> clm_plugin_api::data::input::RawKeyEvent {
+) -> clm_plugin_api::data::input::KeyEvent {
     use clm_plugin_api::data::input::*;
     use crossterm::event::{
         KeyCode as TuiKeyCode, KeyEventKind as TuiKeyState, KeyModifiers as TuiModifiers,
     };
-    RawKeyEvent {
+    KeyEvent {
         physical_key: PhysicalKey::Unknown,
         logical_key: match key_event.code {
             TuiKeyCode::Backspace => LogicalKey::Named(NamedKey::Backspace),

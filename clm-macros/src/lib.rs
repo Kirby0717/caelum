@@ -25,6 +25,11 @@ pub fn derive_convert_value_in_api(item: proc_macro::TokenStream) -> proc_macro:
     let derive = parse_macro_input!(item as DeriveInput);
     let struct_name = derive.ident;
     quote! {
+        impl ::std::convert::From<&#struct_name> for ::clm_core::value::Value {
+            fn from(value: &#struct_name) -> Self {
+                ::clm_core::value::to_value(value).unwrap()
+            }
+        }
         impl ::std::convert::From<#struct_name> for ::clm_core::value::Value {
             fn from(value: #struct_name) -> Self {
                 ::clm_core::value::to_value(&value).unwrap()

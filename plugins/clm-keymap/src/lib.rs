@@ -76,7 +76,7 @@ struct KeyPattern {
     pub alt: bool,
 }
 impl KeyPattern {
-    fn from_key_event(event: &RawKeyEvent) -> Option<Self> {
+    fn from_key_event(event: &KeyEvent) -> Option<Self> {
         let key = match &event.logical_key {
             LogicalKey::Character(s) => KeyPatternKey::Char(s.chars().next()?.to_ascii_lowercase()),
             LogicalKey::Named(n) => KeyPatternKey::Named(*n),
@@ -359,7 +359,6 @@ impl KeymapPlugin {
         let Ok(key_event) = KeyEvent::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
-        let key_event = key_event.key_event;
         let mode = query_service("modal.mode", &[])
             .ok()
             .and_then(|mode| mode.try_into().ok())
@@ -368,17 +367,17 @@ impl KeymapPlugin {
             Mode::Normal => return EventResult::Propagate,
             Mode::Insert => match &key_event.logical_key {
                 LogicalKey::Character(c) => {
-                    query_edit(&EditAction::InsertText(c.clone()));
+                    query_edit(EditAction::InsertText(c.clone()));
                 }
                 LogicalKey::Named(named) => match named {
                     NamedKey::Enter => {
-                        query_edit(&EditAction::NewLine);
+                        query_edit(EditAction::NewLine);
                     }
                     NamedKey::Backspace => {
-                        query_edit(&EditAction::DeleteCharBackward);
+                        query_edit(EditAction::DeleteCharBackward);
                     }
                     NamedKey::Delete => {
-                        query_edit(&EditAction::DeleteCharForward);
+                        query_edit(EditAction::DeleteCharForward);
                     }
                     _ => return EventResult::Propagate,
                 },
@@ -386,21 +385,21 @@ impl KeymapPlugin {
             },
             Mode::Command => match &key_event.logical_key {
                 LogicalKey::Character(c) => {
-                    query_command_line(&CommandLineAction::InsertText(c.clone()));
+                    query_command_line(CommandLineAction::InsertText(c.clone()));
                 }
                 LogicalKey::Named(named) => match named {
                     NamedKey::Enter => {
-                        query_command_line(&CommandLineAction::Execute);
+                        query_command_line(CommandLineAction::Execute);
                     }
                     NamedKey::Escape => {
-                        query_command_line(&CommandLineAction::Clear);
+                        query_command_line(CommandLineAction::Clear);
                         query_set_mode(Mode::Normal);
                     }
                     NamedKey::Backspace => {
-                        query_command_line(&CommandLineAction::DeleteCharBackward);
+                        query_command_line(CommandLineAction::DeleteCharBackward);
                     }
                     NamedKey::Delete => {
-                        query_command_line(&CommandLineAction::DeleteCharForward);
+                        query_command_line(CommandLineAction::DeleteCharForward);
                     }
                     _ => return EventResult::Propagate,
                 },
@@ -414,10 +413,10 @@ impl KeymapPlugin {
         let Ok(key_event) = KeyEvent::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
-        let Some(key) = KeyPattern::from_key_event(&key_event.key_event) else {
+        let Some(key) = KeyPattern::from_key_event(&key_event) else {
             return EventResult::Propagate;
         };
-        if key_event.key_event.state.is_pressed() {
+        if key_event.state.is_pressed() {
             if let Some(bindings) = self.keymap.feed(&key) {
                 for binding in bindings {
                     match binding {
@@ -467,4 +466,17 @@ impl Plugin for KeymapPlugin {
             Self::ON_KEY_INPUT,
         );
     }
+}
+
+pub fn query_set_mode(mode: Mode) {
+    let _ = query_service("modal.set_mode", &[mode.into()]);
+}
+pub fn query_cursor_move(cursor_move: CursorMove) {
+    let _ = query_service("modal.cursor_move", &[cursor_move.into()]);
+}
+pub fn query_edit(edit: EditAction) {
+    let _ = query_service("modal.edit", &[edit.into()]);
+}
+pub fn query_command_line(cmd_action: CommandLineAction) {
+    let _ = query_service("modal.command_line_action", &[cmd_action.into()]);
 }
