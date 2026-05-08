@@ -8,27 +8,6 @@ use clm_plugin_api::core::*;
 use clm_plugin_api::data::id::*;
 pub use clm_tui_driver::{CursorStyle, DrawCommand};
 
-fn apportion(a: &[f64], l: u16) -> Vec<u16> {
-    let n = a.len();
-    let s = a.iter().sum::<f64>();
-    let q = a.iter().map(|&a_i| l as f64 * a_i / s).collect::<Vec<_>>();
-
-    let mut b = q.iter().map(|&q_i| q_i as u16).collect::<Vec<_>>();
-    let t = b.iter().sum::<u16>();
-
-    let rest = l - t;
-    let mut d = (0..n).collect::<Vec<_>>();
-    d.sort_by(|&i, &j| {
-        let ri = q[i] - b[i] as f64;
-        let rj = q[j] - b[j] as f64;
-        rj.partial_cmp(&ri).unwrap()
-    });
-    for &i in &d[..rest as usize] {
-        b[i] += 1;
-    }
-    b
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Rect {
     pub offset: (u16, u16),

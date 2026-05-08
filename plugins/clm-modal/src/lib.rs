@@ -174,6 +174,17 @@ impl ModalPlugin {
     fn active_pane_state_mut(&mut self) -> Option<&mut PaneState> {
         self.panes.get_mut(&self.active_pane?)
     }
+    fn clamp_cursor(&mut self) {
+        let Some(active_state) = self.active_pane_state() else {
+            return;
+        };
+        let changed_buffer_id = active_state.buffer_id;
+        for state in self.panes.values_mut() {
+            if state.buffer_id == changed_buffer_id {
+                state.clamp_cursor(self.mode);
+            }
+        }
+    }
 }
 
 #[clm_plugin_api::clm_handlers(name = "modal")]
@@ -205,9 +216,7 @@ impl ModalPlugin {
             self.command_line.clear();
         }
         self.mode = mode;
-        if let Some(state) = self.active_pane_state_mut() {
-            state.clamp_cursor(mode);
-        }
+        self.clamp_cursor();
         emit_event(
             Event {
                 kind: EventKind("mode_changed".to_string()),
@@ -228,7 +237,7 @@ impl ModalPlugin {
     fn cursor_move(&mut self, args: &[Value]) -> Result<Value, String> {
         let mv: CursorMove = get_arg(args, 0)?;
         match self.mode {
-            mode @ (Mode::Normal | Mode::Insert) => {
+            Mode::Normal | Mode::Insert => {
                 let Some(state) = self.active_pane_state_mut() else {
                     return Err("no active pane".to_string());
                 };
@@ -263,7 +272,7 @@ impl ModalPlugin {
                     }
                     _ => {}
                 }
-                state.clamp_cursor(mode);
+                self.clamp_cursor();
             }
             Mode::Command => match mv {
                 CursorMove::Left { count } => {
@@ -301,7 +310,6 @@ impl ModalPlugin {
     fn edit(&mut self, args: &[Value]) -> Result<Value, String> {
         let edit: EditAction = get_arg(args, 0)?;
         let key_holder = self.key_holder;
-        let mode = self.mode;
         let Some(state) = self.active_pane_state_mut() else {
             return Err("no active pane".to_string());
         };
@@ -419,7 +427,7 @@ impl ModalPlugin {
             _ => {}
         }
         state.cursor = cursor;
-        state.clamp_cursor(mode);
+        self.clamp_cursor();
         emit_event(
             Event {
                 kind: EventKind("request_redraw".to_string()),
@@ -486,7 +494,6 @@ impl ModalPlugin {
     }
     #[service]
     fn switch_buffer(&mut self, args: &[Value]) -> Result<Value, String> {
-        let mode = self.mode;
         let Some(state) = self.active_pane_state_mut() else {
             return Err("no active pane".to_string());
         };
@@ -496,7 +503,7 @@ impl ModalPlugin {
         }
         state.buffer_id = buffer_id;
         state.cursor = CursorState::default();
-        state.clamp_cursor(mode);
+        self.clamp_cursor();
         emit_event(
             Event {
                 kind: EventKind("request_redraw".to_string()),
