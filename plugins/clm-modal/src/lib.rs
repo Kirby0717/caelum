@@ -126,8 +126,8 @@ impl PaneState {
                 let x = cursor_line[..cursor.byte_col].width();
                 commands.push(DrawCommand::SetCursor {
                     position: (
-                        (x - view_offset.0) as u16,
-                        (cursor.row - view_offset.1) as u16,
+                        x.saturating_sub(view_offset.0) as u16,
+                        cursor.row.saturating_sub(view_offset.1) as u16,
                     ),
                     style: match mode {
                         Mode::Normal => CursorStyle::SteadyBlock,

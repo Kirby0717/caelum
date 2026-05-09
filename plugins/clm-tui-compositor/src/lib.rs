@@ -14,7 +14,7 @@ pub struct Rect {
     pub offset: (u16, u16),
     pub size: (u16, u16),
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Horizontal,
     Vertical,
@@ -72,64 +72,96 @@ impl LayoutNode {
         &self,
         mut offset: (u16, u16),
         total_size: (u16, u16),
-    ) -> Vec<(PaneId, Rect)> {
+    ) -> (Vec<(PaneId, Rect)>, Vec<DrawCommand>) {
         match self {
-            Self::Pane(pane_id) => vec![(
-                *pane_id,
-                Rect {
-                    offset,
-                    size: total_size,
-                },
-            )],
+            Self::Pane(pane_id) => (
+                vec![(
+                    *pane_id,
+                    Rect {
+                        offset,
+                        size: total_size,
+                    },
+                )],
+                vec![],
+            ),
             Self::Split {
                 direction,
                 children,
             } => match direction {
                 Direction::Horizontal => {
-                    let weights = children
+                    let weights: Vec<_> = children
                         .iter()
                         .map(|(size_constraint, _)| {
                             (size_constraint.weight.0, size_constraint.range.0)
                         })
-                        .collect::<Vec<_>>();
-                    let width = utility::distribute(&weights, total_size.0);
-                    children
-                        .iter()
-                        .zip(width.iter())
-                        .flat_map(|((_, node), &width)| {
-                            let rects = node.resolve_layout(offset, (width, total_size.1));
-                            offset.0 += width;
-                            rects
-                        })
-                        .collect()
+                        .collect();
+                    let pane_len = children.len() as u16;
+                    if total_size.0 + 1 < pane_len {
+                        // セパレーターがかけないサイズ
+                        let mut commands = vec![];
+                        // セパレータだけ描画
+                        for row in 0..total_size.1 {
+                            commands.push(DrawCommand::DrawString {
+                                position: (0, row),
+                                text: "│".repeat(total_size.0 as usize),
+                            });
+                        }
+                        (vec![], commands)
+                    } else {
+                        let width = utility::distribute(&weights, total_size.0 + 1 - pane_len);
+                        let mut rects = vec![];
+                        let mut commands = vec![];
+                        for (((_, node), wideth), i) in children.iter().zip(width).zip(1..) {
+                            let size = (wideth, total_size.1);
+                            let (node_rects, node_commands) = node.resolve_layout(offset, size);
+                            rects.extend(node_rects);
+                            commands.extend(translate_and_clip(
+                                node_commands,
+                                Rect { offset, size },
+                                false,
+                            ));
+                            if i != pane_len {
+                                // セパレータの描画
+                                for row in 0..total_size.1 {
+                                    commands.push(DrawCommand::DrawString {
+                                        position: (offset.0 + wideth, row),
+                                        text: "│".to_string(),
+                                    });
+                                }
+                            }
+                            offset.0 += wideth + 1;
+                        }
+                        (rects, commands)
+                    }
                 }
                 Direction::Vertical => {
-                    let weights = children
+                    let weights: Vec<_> = children
                         .iter()
                         .map(|(size_constraint, _)| {
                             (size_constraint.weight.1, size_constraint.range.1)
                         })
-                        .collect::<Vec<_>>();
+                        .collect();
                     let height = utility::distribute(&weights, total_size.1);
-                    children
-                        .iter()
-                        .zip(height.iter())
-                        .flat_map(|((_, node), &height)| {
-                            let rects = node.resolve_layout(offset, (total_size.0, height));
-                            offset.1 += height;
-                            rects
-                        })
-                        .collect()
+                    let mut rects = vec![];
+                    let mut commands = vec![];
+                    for ((_, node), height) in children.iter().zip(height) {
+                        let (node_rects, node_commands) =
+                            node.resolve_layout(offset, (total_size.0, height));
+                        rects.extend(node_rects);
+                        commands.extend(node_commands);
+                        offset.1 += height;
+                    }
+                    (rects, commands)
                 }
             },
         }
     }
-    fn split(&mut self, new_id: PaneId, source_id: PaneId) {
+    fn split(&mut self, new_id: PaneId, source_id: PaneId, direction: Direction) {
         match self {
             LayoutNode::Pane(pane_id) => {
                 if source_id == *pane_id {
                     *self = LayoutNode::Split {
-                        direction: Direction::Horizontal,
+                        direction,
                         children: vec![
                             (SizeConstraint::default(), LayoutNode::Pane(*pane_id)),
                             (SizeConstraint::default(), LayoutNode::Pane(new_id)),
@@ -138,10 +170,10 @@ impl LayoutNode {
                 }
             }
             LayoutNode::Split {
-                direction,
+                direction: split_direction,
                 children,
-            } => match direction {
-                Direction::Horizontal => {
+            } => {
+                if *split_direction == direction {
                     let position = children
                         .iter()
                         .position(|(_, node)| matches!(node, LayoutNode::Pane(pane_id) if *pane_id == source_id));
@@ -152,63 +184,30 @@ impl LayoutNode {
                         );
                     } else {
                         for (_, node) in children {
-                            node.split(new_id, source_id);
+                            node.split(new_id, source_id, direction);
                         }
                     }
-                }
-                Direction::Vertical => {
+                } else {
                     for (_, node) in children {
-                        node.split(new_id, source_id);
+                        node.split(new_id, source_id, direction);
                     }
-                }
-            },
-        }
-    }
-    fn vsplit(&mut self, new_id: PaneId, source_id: PaneId) {
-        match self {
-            LayoutNode::Pane(pane_id) => {
-                if source_id == *pane_id {
-                    *self = LayoutNode::Split {
-                        direction: Direction::Vertical,
-                        children: vec![
-                            (SizeConstraint::default(), LayoutNode::Pane(*pane_id)),
-                            (SizeConstraint::default(), LayoutNode::Pane(new_id)),
-                        ],
-                    };
                 }
             }
-            LayoutNode::Split {
-                direction,
-                children,
-            } => match direction {
-                Direction::Horizontal => {
-                    for (_, node) in children {
-                        node.vsplit(new_id, source_id);
-                    }
-                }
-                Direction::Vertical => {
-                    let position = children
-                        .iter()
-                        .position(|(_, node)| matches!(node, LayoutNode::Pane(pane_id) if *pane_id == source_id));
-                    if let Some(position) = position {
-                        children.insert(
-                            position + 1,
-                            (SizeConstraint::default(), LayoutNode::Pane(new_id)),
-                        );
-                    } else {
-                        for (_, node) in children {
-                            node.vsplit(new_id, source_id);
-                        }
-                    }
-                }
-            },
         }
     }
 }
 
 #[derive(Debug)]
+struct FloatLayer {
+    id: FloatId,
+    root: LayoutNode,
+    handler: Option<String>,
+}
+
+#[derive(Debug)]
 pub struct TuiCompositorPlugin {
-    layout: LayoutNode,
+    main_layout: LayoutNode,
+    float_layer: Vec<FloatLayer>,
     pane_handlers: HashMap<PaneId, String>,
     focus: PaneId,
     next_id: usize,
@@ -222,7 +221,8 @@ impl TuiCompositorPlugin {
         query_service(&format!("{handler}.pane_active"), &[id.into()]).unwrap();
 
         Self {
-            layout: LayoutNode::Pane(id),
+            main_layout: LayoutNode::Pane(id),
+            float_layer: vec![],
             pane_handlers: HashMap::from([(id, handler.to_string())]),
             focus: id,
             next_id: 1,
@@ -233,8 +233,36 @@ impl TuiCompositorPlugin {
         self.next_id += 1;
         id
     }
-    pub fn resolve_layout(&self, total_size: (u16, u16)) -> Vec<(PaneId, Rect)> {
-        self.layout.resolve_layout((0, 0), total_size)
+    pub fn split_pane(&mut self, direction: Direction) {
+        let source_id = self.focus;
+        let new_id = self.get_next_id();
+        let handler = &self.pane_handlers[&source_id];
+        if query_service(
+            &format!("{handler}.split_pane"),
+            &[new_id.into(), source_id.into()],
+        )
+        .is_ok()
+        {
+            self.pane_handlers.insert(new_id, handler.clone());
+            self.main_layout.split(new_id, source_id, direction);
+        }
+    }
+    pub fn resolve_layout(
+        &self,
+        total_size: (u16, u16),
+    ) -> (Vec<(PaneId, Rect)>, Vec<DrawCommand>) {
+        let (rects, commands) = self.main_layout.resolve_layout((0, 0), total_size);
+        (
+            rects,
+            translate_and_clip(
+                commands,
+                Rect {
+                    offset: (0, 0),
+                    size: total_size,
+                },
+                false,
+            ),
+        )
     }
 }
 #[clm_plugin_api::clm_handlers(name = "tui-compositor")]
@@ -242,10 +270,17 @@ impl TuiCompositorPlugin {
     #[service]
     fn build_frame(&self, args: &[Value]) -> Result<Value, String> {
         let terminal_size: (u16, u16) = get_arg(args, 0)?;
-        let layout = self.resolve_layout(terminal_size);
+        let (rects, commands) = self.resolve_layout(terminal_size);
 
-        let mut commands = vec![];
-        for (pane_id, rect) in layout {
+        let mut commands = translate_and_clip(
+            commands,
+            Rect {
+                offset: (0, 0),
+                size: terminal_size,
+            },
+            false,
+        );
+        for (pane_id, rect) in rects {
             let handler = &self.pane_handlers[&pane_id];
             let pane_commands: Vec<DrawCommand> = query_service(
                 &format!("{handler}.render_pane"),
@@ -262,34 +297,12 @@ impl TuiCompositorPlugin {
     }
     #[service]
     fn split(&mut self, _args: &[Value]) -> Result<Value, String> {
-        let source_id = self.focus;
-        let new_id = self.get_next_id();
-        let handler = &self.pane_handlers[&source_id];
-        if query_service(
-            &format!("{handler}.split_pane"),
-            &[new_id.into(), source_id.into()],
-        )
-        .is_ok()
-        {
-            self.pane_handlers.insert(new_id, handler.clone());
-            self.layout.split(new_id, source_id);
-        }
+        self.split_pane(Direction::Vertical);
         Ok(Value::Null)
     }
     #[service]
     fn vsplit(&mut self, _args: &[Value]) -> Result<Value, String> {
-        let source_id = self.focus;
-        let new_id = self.get_next_id();
-        let handler = &self.pane_handlers[&source_id];
-        if query_service(
-            &format!("{handler}.split_pane"),
-            &[new_id.into(), source_id.into()],
-        )
-        .is_ok()
-        {
-            self.pane_handlers.insert(new_id, handler.clone());
-            self.layout.vsplit(new_id, source_id);
-        }
+        self.split_pane(Direction::Horizontal);
         Ok(Value::Null)
     }
     #[service]
