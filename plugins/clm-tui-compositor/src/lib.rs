@@ -1,3 +1,4 @@
+// TODO: フロートウィンドウの実装
 mod utility;
 
 use std::collections::HashMap;
@@ -45,6 +46,7 @@ fn range_bounds_into_range(range: impl std::ops::RangeBounds<u16>) -> RangeInclu
 }
 impl SizeConstraint {
     pub fn new(weight: (f64, f64), range: (impl RangeBounds<u16>, impl RangeBounds<u16>)) -> Self {
+        assert!(!weight.0.is_nan() && !weight.1.is_nan());
         SizeConstraint {
             weight: (
                 weight.0.clamp(f64::EPSILON, f64::MAX),

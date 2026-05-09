@@ -28,7 +28,7 @@ impl Buffer {
         }
     }
     pub fn from_file<P: AsRef<Path>>(id: BufferId, path: P) -> std::io::Result<Self> {
-        let file_path = Some(path.as_ref().to_path_buf());
+        let file_path = Some(path.as_ref().canonicalize()?);
         let file = std::fs::File::open(path)?;
         Ok(Self {
             history: vec![Rope::from_reader(file)?],
@@ -426,12 +426,17 @@ impl BufferPlugin {
     fn open(&mut self, args: &[Value]) -> Result<Value, String> {
         let path: String = get_arg(args, 0)?;
         let id = BufferId(self.next_id);
-        let buffer = match Buffer::from_file(id, path) {
-            Ok(buffer) => buffer,
-            Err(err) => {
-                return Err(err.to_string());
+        let full_path = PathBuf::from(path)
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        for (id, buffer) in &self.buffers {
+            if let Some(buffer_path) = buffer.file_path()
+                && buffer_path == full_path
+            {
+                return Ok(id.into());
             }
-        };
+        }
+        let buffer = Buffer::from_file(id, full_path).map_err(|e| e.to_string())?;
         self.buffers.insert(id, buffer);
         self.next_id += 1;
         Ok(id.into())
