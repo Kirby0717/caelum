@@ -60,6 +60,11 @@ impl SizeConstraint {
     }
 }
 #[derive(Debug)]
+pub struct PaneEntry {
+    parent: Option<PaneId>,
+    handler: String,
+}
+#[derive(Debug)]
 pub enum LayoutNode {
     Pane(PaneId),
     Split {
@@ -198,17 +203,17 @@ impl LayoutNode {
 }
 
 #[derive(Debug)]
-struct FloatLayer {
-    id: FloatId,
+struct FloatWindow {
     root: LayoutNode,
     handler: Option<String>,
 }
 
 #[derive(Debug)]
 pub struct TuiCompositorPlugin {
-    main_layout: LayoutNode,
-    float_layer: Vec<FloatLayer>,
-    pane_handlers: HashMap<PaneId, String>,
+    main_window: LayoutNode,
+    float_window: HashMap<FloatId, FloatWindow>,
+    panes: HashMap<PaneId, PaneEntry>,
+    focus_window_stack: Vec<FloatId>,
     focus: PaneId,
     next_id: usize,
 }
@@ -221,9 +226,16 @@ impl TuiCompositorPlugin {
         query_service(&format!("{handler}.pane_active"), &[id.into()]).unwrap();
 
         Self {
-            main_layout: LayoutNode::Pane(id),
-            float_layer: vec![],
-            pane_handlers: HashMap::from([(id, handler.to_string())]),
+            main_window: LayoutNode::Pane(id),
+            float_window: HashMap::new(),
+            panes: HashMap::from([(
+                id,
+                PaneEntry {
+                    parent: None,
+                    handler: handler.to_string(),
+                },
+            )]),
+            focus_window_stack: vec![],
             focus: id,
             next_id: 1,
         }
@@ -236,22 +248,21 @@ impl TuiCompositorPlugin {
     pub fn split_pane(&mut self, direction: Direction) {
         let source_id = self.focus;
         let new_id = self.get_next_id();
-        let handler = &self.pane_handlers[&source_id];
-        if query_service(
+        let handler = self.panes[&source_id].handler.clone();
+        if let Ok(parent) = query_service(
             &format!("{handler}.split_pane"),
             &[new_id.into(), source_id.into()],
-        )
-        .is_ok()
-        {
-            self.pane_handlers.insert(new_id, handler.clone());
-            self.main_layout.split(new_id, source_id, direction);
+        ) {
+            let parent = parent.try_into().unwrap();
+            self.panes.insert(new_id, PaneEntry { parent, handler });
+            self.main_window.split(new_id, source_id, direction);
         }
     }
     pub fn resolve_layout(
         &self,
         total_size: (u16, u16),
     ) -> (Vec<(PaneId, Rect)>, Vec<DrawCommand>) {
-        let (rects, commands) = self.main_layout.resolve_layout((0, 0), total_size);
+        let (rects, commands) = self.main_window.resolve_layout((0, 0), total_size);
         (
             rects,
             translate_and_clip(
@@ -281,7 +292,7 @@ impl TuiCompositorPlugin {
             false,
         );
         for (pane_id, rect) in rects {
-            let handler = &self.pane_handlers[&pane_id];
+            let handler = &self.panes[&pane_id].handler;
             let pane_commands: Vec<DrawCommand> = query_service(
                 &format!("{handler}.render_pane"),
                 &[pane_id.into(), rect.size.into()],
