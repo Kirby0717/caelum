@@ -514,6 +514,21 @@ impl ModalPlugin {
         Ok(Value::Null)
     }
     #[service]
+    fn open_command(&mut self, _args: &[Value]) -> Result<Value, String> {
+        emit_event(
+            Event {
+                kind: EventKind("open_float_window".to_string()),
+                data: OpenFloatWindowConfig {
+                    float_window_handler: "cmdline".to_string(),
+                    pane_handler: "cmdline".to_string(),
+                }
+                .into(),
+            },
+            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+        );
+        Ok(Value::Null)
+    }
+    #[service]
     fn attach_pane(&mut self, args: &[Value]) -> Result<Value, String> {
         let pane_id: PaneId = get_arg(args, 0)?;
         let path: Option<String> = get_arg(args, 1).unwrap_or_default();

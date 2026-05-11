@@ -12,6 +12,7 @@ clm-core = { path = "../clm-core" }
 anyhow = "1"
 
 clm-buffer = { path = "../plugins/clm-buffer" }
+clm-cmdline = { path = "../plugins/clm-cmdline" }
 clm-keymap = { path = "../plugins/clm-keymap" }
 clm-modal = { path = "../plugins/clm-modal" }
 clm-tui-compositor = { path = "../plugins/clm-tui-compositor" }

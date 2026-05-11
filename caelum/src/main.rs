@@ -21,6 +21,7 @@ fn main() -> anyhow::Result<()> {
     //let file = "E:/Word/言語学Aポスター/data/all8.txt";
 
     add_plugin(clm_modal::ModalPlugin::new());
+    add_plugin(clm_cmdline::CommandLinePlugin::new());
     add_plugin(clm_buffer::BufferPlugin::new());
     add_plugin(clm_keymap::KeymapPlugin::new());
     add_plugin(clm_tui_compositor::TuiCompositorPlugin::new(

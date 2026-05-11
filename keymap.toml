@@ -42,6 +42,7 @@
 
 # コマンド
 ";" = { service = "modal.set_mode", args = "command" }
+":" = { service = "modal.open_command" }
 
 [insert]
 "escape" = { service = "modal.set_mode", args = "normal" }

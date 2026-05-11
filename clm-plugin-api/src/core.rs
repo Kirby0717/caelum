@@ -19,3 +19,13 @@ pub fn get_arg<T: TryFrom<Value>>(args: &[Value], index: usize) -> Result<T, Str
         .try_into()
         .map_err(|_| "invalid arg".to_string())
 }
+#[inline(always)]
+pub fn request_redraw() {
+    emit_event(
+        Event {
+            kind: EventKind("request_redraw".to_string()),
+            data: Value::Null,
+        },
+        DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+    );
+}

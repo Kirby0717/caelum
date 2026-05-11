@@ -103,3 +103,9 @@ pub enum BufferChange {
     Save(id::BufferId),
     Reset(id::BufferId),
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
+pub struct OpenFloatWindowConfig {
+    pub float_window_handler: String,
+    pub pane_handler: String,
+}

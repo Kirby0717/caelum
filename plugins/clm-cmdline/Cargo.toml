@@ -1,0 +1,12 @@
+[package]
+name = "clm-cmdline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description.workspace = true
+repository.workspace = true
+
+[dependencies]
+clm-plugin-api = { path = "../../clm-plugin-api" }
+clm-tui-compositor = { path = "../clm-tui-compositor" }

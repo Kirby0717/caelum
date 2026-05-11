@@ -2,220 +2,110 @@
 mod utility;
 
 use std::collections::HashMap;
-use std::ops::RangeBounds;
-use std::range::RangeInclusive;
 
 use clm_plugin_api::core::*;
 use clm_plugin_api::data::id::*;
+use clm_plugin_api::data::tui_layout::*;
+use clm_plugin_api::data::*;
+use clm_plugin_api::priority;
 pub use clm_tui_driver::{CursorStyle, DrawCommand};
 
-#[derive(Debug, Clone, Copy)]
-pub struct Rect {
-    pub offset: (u16, u16),
-    pub size: (u16, u16),
-}
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Direction {
-    Horizontal,
-    Vertical,
-}
-#[derive(Debug, Clone, Copy)]
-pub struct SizeConstraint {
-    weight: (f64, f64),
-    range: (RangeInclusive<u16>, RangeInclusive<u16>),
-}
-impl Default for SizeConstraint {
-    fn default() -> Self {
-        Self::new((1.0, 1.0), (.., ..))
-    }
-}
-fn range_bounds_into_range(range: impl std::ops::RangeBounds<u16>) -> RangeInclusive<u16> {
-    use std::ops::Bound;
-    let start = match range.start_bound() {
-        Bound::Included(&n) => n,
-        Bound::Excluded(&n) => n.checked_add(1).expect("start overflow"),
-        Bound::Unbounded => u16::MIN,
-    };
-    let last = match range.end_bound() {
-        Bound::Included(&n) => n,
-        Bound::Excluded(&n) => n.checked_sub(1).expect("end underflow (empty range)"),
-        Bound::Unbounded => u16::MAX,
-    };
-
-    RangeInclusive { start, last }
-}
-impl SizeConstraint {
-    pub fn new(weight: (f64, f64), range: (impl RangeBounds<u16>, impl RangeBounds<u16>)) -> Self {
-        assert!(!weight.0.is_nan() && !weight.1.is_nan());
-        SizeConstraint {
-            weight: (
-                weight.0.clamp(f64::EPSILON, f64::MAX),
-                weight.1.clamp(f64::EPSILON, f64::MAX),
-            ),
-            range: (
-                range_bounds_into_range(range.0),
-                range_bounds_into_range(range.1),
-            ),
-        }
-    }
-}
-#[derive(Debug)]
-pub struct PaneEntry {
-    parent: Option<PaneId>,
-    handler: String,
-}
-#[derive(Debug)]
-pub enum LayoutNode {
-    Pane(PaneId),
-    Split {
-        direction: Direction,
-        children: Vec<(SizeConstraint, LayoutNode)>,
-    },
-}
-impl LayoutNode {
-    fn resolve_layout(
-        &self,
-        mut offset: (u16, u16),
-        total_size: (u16, u16),
-    ) -> (Vec<(PaneId, Rect)>, Vec<DrawCommand>) {
-        match self {
-            Self::Pane(pane_id) => (
-                vec![(
-                    *pane_id,
-                    Rect {
-                        offset,
-                        size: total_size,
-                    },
-                )],
-                vec![],
-            ),
-            Self::Split {
-                direction,
-                children,
-            } => match direction {
-                Direction::Horizontal => {
-                    let weights: Vec<_> = children
-                        .iter()
-                        .map(|(size_constraint, _)| {
-                            (size_constraint.weight.0, size_constraint.range.0)
-                        })
-                        .collect();
-                    let pane_len = children.len() as u16;
-                    if total_size.0 + 1 < pane_len {
-                        // セパレーターがかけないサイズ
-                        let mut commands = vec![];
-                        // セパレータだけ描画
-                        for row in 0..total_size.1 {
-                            commands.push(DrawCommand::DrawString {
-                                position: (0, row),
-                                text: "│".repeat(total_size.0 as usize),
-                            });
-                        }
-                        (vec![], commands)
-                    } else {
-                        let width = utility::distribute(&weights, total_size.0 + 1 - pane_len);
-                        let mut rects = vec![];
-                        let mut commands = vec![];
-                        for (((_, node), wideth), i) in children.iter().zip(width).zip(1..) {
-                            let size = (wideth, total_size.1);
-                            let (node_rects, node_commands) = node.resolve_layout(offset, size);
-                            rects.extend(node_rects);
-                            commands.extend(translate_and_clip(
-                                node_commands,
-                                Rect { offset, size },
-                                false,
-                            ));
-                            if i != pane_len {
-                                // セパレータの描画
-                                for row in 0..total_size.1 {
-                                    commands.push(DrawCommand::DrawString {
-                                        position: (offset.0 + wideth, row),
-                                        text: "│".to_string(),
-                                    });
-                                }
-                            }
-                            offset.0 += wideth + 1;
-                        }
-                        (rects, commands)
+fn resolve_layout(
+    node: &LayoutNode,
+    Rect { mut offset, size }: Rect,
+) -> (Vec<(PaneId, Rect)>, Vec<DrawCommand>) {
+    match node {
+        LayoutNode::Pane(pane_id) => (vec![(*pane_id, Rect { offset, size })], vec![]),
+        LayoutNode::Split {
+            direction,
+            children,
+        } => match direction {
+            Direction::Horizontal => {
+                let weights: Vec<_> = children
+                    .iter()
+                    .map(|(size_constraint, _)| (size_constraint.weight.0, size_constraint.range.0))
+                    .collect();
+                let pane_len = children.len() as u16;
+                if size.0 + 1 < pane_len {
+                    // セパレーターがかけないサイズ
+                    let mut commands = vec![];
+                    // セパレータだけ描画
+                    for row in 0..size.1 {
+                        commands.push(DrawCommand::DrawString {
+                            position: (0, row),
+                            text: "│".repeat(size.0 as usize),
+                        });
                     }
-                }
-                Direction::Vertical => {
-                    let weights: Vec<_> = children
-                        .iter()
-                        .map(|(size_constraint, _)| {
-                            (size_constraint.weight.1, size_constraint.range.1)
-                        })
-                        .collect();
-                    let height = utility::distribute(&weights, total_size.1);
+                    (vec![], commands)
+                } else {
+                    let width = utility::distribute(&weights, size.0 + 1 - pane_len);
                     let mut rects = vec![];
                     let mut commands = vec![];
-                    for ((_, node), height) in children.iter().zip(height) {
+                    for (((_, node), wideth), i) in children.iter().zip(width).zip(1..) {
+                        let size = (wideth, size.1);
                         let (node_rects, node_commands) =
-                            node.resolve_layout(offset, (total_size.0, height));
+                            resolve_layout(node, Rect { offset, size });
                         rects.extend(node_rects);
-                        commands.extend(node_commands);
-                        offset.1 += height;
+                        commands.extend(translate_and_clip(
+                            node_commands,
+                            Rect { offset, size },
+                            false,
+                        ));
+                        if i != pane_len {
+                            // セパレータの描画
+                            for row in 0..size.1 {
+                                commands.push(DrawCommand::DrawString {
+                                    position: (offset.0 + wideth, row),
+                                    text: "│".to_string(),
+                                });
+                            }
+                        }
+                        offset.0 += wideth + 1;
                     }
                     (rects, commands)
                 }
-            },
-        }
-    }
-    fn split(&mut self, new_id: PaneId, source_id: PaneId, direction: Direction) {
-        match self {
-            LayoutNode::Pane(pane_id) => {
-                if source_id == *pane_id {
-                    *self = LayoutNode::Split {
-                        direction,
-                        children: vec![
-                            (SizeConstraint::default(), LayoutNode::Pane(*pane_id)),
-                            (SizeConstraint::default(), LayoutNode::Pane(new_id)),
-                        ],
-                    };
-                }
             }
-            LayoutNode::Split {
-                direction: split_direction,
-                children,
-            } => {
-                if *split_direction == direction {
-                    let position = children
-                        .iter()
-                        .position(|(_, node)| matches!(node, LayoutNode::Pane(pane_id) if *pane_id == source_id));
-                    if let Some(position) = position {
-                        children.insert(
-                            position + 1,
-                            (SizeConstraint::default(), LayoutNode::Pane(new_id)),
-                        );
-                    } else {
-                        for (_, node) in children {
-                            node.split(new_id, source_id, direction);
-                        }
-                    }
-                } else {
-                    for (_, node) in children {
-                        node.split(new_id, source_id, direction);
-                    }
+            Direction::Vertical => {
+                let weights: Vec<_> = children
+                    .iter()
+                    .map(|(size_constraint, _)| (size_constraint.weight.1, size_constraint.range.1))
+                    .collect();
+                let height = utility::distribute(&weights, size.1);
+                let mut rects = vec![];
+                let mut commands = vec![];
+                for ((_, node), height) in children.iter().zip(height) {
+                    let (node_rects, node_commands) = resolve_layout(
+                        node,
+                        Rect {
+                            offset,
+                            size: (size.0, height),
+                        },
+                    );
+                    rects.extend(node_rects);
+                    commands.extend(node_commands);
+                    offset.1 += height;
                 }
+                (rects, commands)
             }
-        }
+        },
     }
 }
 
 #[derive(Debug)]
 struct FloatWindow {
     root: LayoutNode,
-    handler: Option<String>,
+    handler: String,
 }
 
 #[derive(Debug)]
 pub struct TuiCompositorPlugin {
     main_window: LayoutNode,
-    float_window: HashMap<FloatId, FloatWindow>,
+    float_windows: HashMap<FloatId, FloatWindow>,
     panes: HashMap<PaneId, PaneEntry>,
     focus_window_stack: Vec<FloatId>,
     focus: PaneId,
-    next_id: usize,
+    next_pane_id: usize,
+    next_float_id: usize,
 }
 impl TuiCompositorPlugin {
     pub fn new(handler: &str, args: &[Value]) -> Self {
@@ -227,7 +117,7 @@ impl TuiCompositorPlugin {
 
         Self {
             main_window: LayoutNode::Pane(id),
-            float_window: HashMap::new(),
+            float_windows: HashMap::new(),
             panes: HashMap::from([(
                 id,
                 PaneEntry {
@@ -237,17 +127,23 @@ impl TuiCompositorPlugin {
             )]),
             focus_window_stack: vec![],
             focus: id,
-            next_id: 1,
+            next_pane_id: 1,
+            next_float_id: 0,
         }
     }
-    pub fn get_next_id(&mut self) -> PaneId {
-        let id = PaneId(self.next_id);
-        self.next_id += 1;
-        id
+    pub fn get_next_pane_id(&mut self) -> PaneId {
+        let pane_id = PaneId(self.next_pane_id);
+        self.next_pane_id += 1;
+        pane_id
+    }
+    pub fn get_next_float_id(&mut self) -> FloatId {
+        let float_id = FloatId(self.next_float_id);
+        self.next_float_id += 1;
+        float_id
     }
     pub fn split_pane(&mut self, direction: Direction) {
         let source_id = self.focus;
-        let new_id = self.get_next_id();
+        let new_id = self.get_next_pane_id();
         let handler = self.panes[&source_id].handler.clone();
         if let Ok(parent) = query_service(
             &format!("{handler}.split_pane"),
@@ -260,20 +156,14 @@ impl TuiCompositorPlugin {
     }
     pub fn resolve_layout(
         &self,
-        total_size: (u16, u16),
+        terminal_size: (u16, u16),
     ) -> (Vec<(PaneId, Rect)>, Vec<DrawCommand>) {
-        let (rects, commands) = self.main_window.resolve_layout((0, 0), total_size);
-        (
-            rects,
-            translate_and_clip(
-                commands,
-                Rect {
-                    offset: (0, 0),
-                    size: total_size,
-                },
-                false,
-            ),
-        )
+        let terminal_rect = Rect {
+            offset: (0, 0),
+            size: terminal_size,
+        };
+        let (rects, commands) = resolve_layout(&self.main_window, terminal_rect);
+        (rects, translate_and_clip(commands, terminal_rect, false))
     }
 }
 #[clm_plugin_api::clm_handlers(name = "tui-compositor")]
@@ -281,17 +171,22 @@ impl TuiCompositorPlugin {
     #[service]
     fn build_frame(&self, args: &[Value]) -> Result<Value, String> {
         let terminal_size: (u16, u16) = get_arg(args, 0)?;
-        let (rects, commands) = self.resolve_layout(terminal_size);
+        let terminal_rect = Rect {
+            offset: (0, 0),
+            size: terminal_size,
+        };
 
-        let mut commands = translate_and_clip(
-            commands,
-            Rect {
-                offset: (0, 0),
-                size: terminal_size,
-            },
+        let mut commands = vec![];
+
+        // メイン画面
+        let (rects, main_window_commands) = self.resolve_layout(terminal_size);
+        commands.extend(translate_and_clip(
+            main_window_commands,
+            terminal_rect,
             false,
-        );
-        for (pane_id, rect) in rects {
+        ));
+        for (pane_id, mut rect) in rects {
+            rect.clip(terminal_rect);
             let handler = &self.panes[&pane_id].handler;
             let pane_commands: Vec<DrawCommand> = query_service(
                 &format!("{handler}.render_pane"),
@@ -303,6 +198,45 @@ impl TuiCompositorPlugin {
                 rect,
                 pane_id == self.focus,
             ));
+        }
+        // フロートウィンドウ
+        for (id, FloatWindow { root, handler }) in self.float_windows.iter() {
+            // 位置決め
+            let mut float_window_rect: Rect = query_service(
+                &format!("{handler}.float_window_rect"),
+                &[id.into(), terminal_size.into()],
+            )?
+            .try_into()?;
+            float_window_rect.clip(terminal_rect);
+
+            // レイアウト解決
+            let (rects, float_window_commands) = if let Ok(rects_and_commands) = query_service(
+                &format!("{handler}.resolve_layout"),
+                &[root.into(), float_window_rect.into()],
+            ) {
+                rects_and_commands.try_into()?
+            } else {
+                resolve_layout(root, float_window_rect)
+            };
+            commands.extend(translate_and_clip(
+                float_window_commands,
+                float_window_rect,
+                false,
+            ));
+
+            for (pane_id, rect) in rects {
+                let handler = &self.panes[&pane_id].handler;
+                let pane_commands: Vec<DrawCommand> = query_service(
+                    &format!("{handler}.render_pane"),
+                    &[pane_id.into(), rect.size.into()],
+                )?
+                .try_into()?;
+                commands.extend(translate_and_clip(
+                    pane_commands,
+                    rect,
+                    pane_id == self.focus,
+                ));
+            }
         }
         Ok(commands.into())
     }
@@ -319,6 +253,54 @@ impl TuiCompositorPlugin {
     #[service]
     fn focus_pane(&self, _args: &[Value]) -> Result<Value, String> {
         Ok(self.focus.into())
+    }
+    #[subscribe(priority = priority::DEFAULT)]
+    fn on_open_float_window(&mut self, data: &Value) -> EventResult {
+        let Ok(OpenFloatWindowConfig {
+            float_window_handler,
+            pane_handler,
+        }) = OpenFloatWindowConfig::try_from(data.clone())
+        else {
+            return EventResult::Propagate;
+        };
+
+        let float_id = self.get_next_float_id();
+        let pane_id = self.get_next_pane_id();
+        query_service(
+            &format!("{float_window_handler}.attach_float_window"),
+            &[float_id.into()],
+        )
+        .unwrap();
+        self.float_windows.insert(
+            float_id,
+            FloatWindow {
+                root: LayoutNode::Pane(pane_id),
+                handler: float_window_handler.clone(),
+            },
+        );
+
+        let parent = query_service(&format!("{pane_handler}.attach_pane"), &[pane_id.into()])
+            .unwrap()
+            .try_into()
+            .unwrap();
+        self.panes.insert(
+            pane_id,
+            PaneEntry {
+                parent,
+                handler: pane_handler.clone(),
+            },
+        );
+        if let Ok(focusable) = query_service(&format!("{float_window_handler}.is_focusable"), &[])
+            && let Ok(true) = bool::try_from(focusable)
+        {
+            self.focus_window_stack.push(float_id);
+            query_service(&format!("{pane_handler}.pane_active"), &[pane_id.into()]).unwrap();
+            self.focus = pane_id;
+        }
+
+        request_redraw();
+
+        EventResult::Handled
     }
 }
 impl Plugin for TuiCompositorPlugin {

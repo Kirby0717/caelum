@@ -164,6 +164,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "clm-buffer",
+ "clm-cmdline",
  "clm-core",
  "clm-keymap",
  "clm-modal",
@@ -185,6 +186,14 @@ dependencies = [
  "fastrand",
  "ropey",
  "unicode-width",
+]
+
+[[package]]
+name = "clm-cmdline"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "clm-plugin-api",
+ "clm-tui-compositor",
 ]
 
 [[package]]
