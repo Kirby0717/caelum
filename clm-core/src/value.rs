@@ -669,11 +669,11 @@ where
         }
     }
 }
-impl<T: Clone> From<&[T]> for Value
+impl<T: Clone, const N: usize> From<&[T; N]> for Value
 where
     Value: From<T>,
 {
-    fn from(value: &[T]) -> Self {
+    fn from(value: &[T; N]) -> Self {
         Value::List(value.iter().cloned().map(Value::from).collect())
     }
 }
@@ -683,6 +683,22 @@ where
 {
     fn from(value: [T; N]) -> Self {
         Value::List(value.into_iter().map(Value::from).collect())
+    }
+}
+impl<T: Clone> From<&[T]> for Value
+where
+    Value: From<T>,
+{
+    fn from(value: &[T]) -> Self {
+        Value::List(value.iter().cloned().map(Value::from).collect())
+    }
+}
+impl<T: Clone> From<&Vec<T>> for Value
+where
+    Value: From<T>,
+{
+    fn from(value: &Vec<T>) -> Self {
+        Value::List(value.iter().cloned().map(Value::from).collect())
     }
 }
 impl<T> From<Vec<T>> for Value

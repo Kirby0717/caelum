@@ -11,12 +11,14 @@ use clm_plugin_api::priority;
 pub use clm_tui_driver::{CursorStyle, DrawCommand};
 
 fn resolve_layout(
-    node: &LayoutNode,
+    node: &LayoutNodeWithSizeConstraint,
     Rect { mut offset, size }: Rect,
 ) -> (Vec<(PaneId, Rect)>, Vec<DrawCommand>) {
     match node {
-        LayoutNode::Pane(pane_id) => (vec![(*pane_id, Rect { offset, size })], vec![]),
-        LayoutNode::Split {
+        LayoutNodeWithSizeConstraint::Pane((pane_id, _)) => {
+            (vec![(*pane_id, Rect { offset, size })], vec![])
+        }
+        LayoutNodeWithSizeConstraint::Split {
             direction,
             children,
         } => match direction {
@@ -131,17 +133,17 @@ impl TuiCompositorPlugin {
             next_float_id: 0,
         }
     }
-    pub fn get_next_pane_id(&mut self) -> PaneId {
+    fn get_next_pane_id(&mut self) -> PaneId {
         let pane_id = PaneId(self.next_pane_id);
         self.next_pane_id += 1;
         pane_id
     }
-    pub fn get_next_float_id(&mut self) -> FloatId {
+    fn get_next_float_id(&mut self) -> FloatId {
         let float_id = FloatId(self.next_float_id);
         self.next_float_id += 1;
         float_id
     }
-    pub fn split_pane(&mut self, direction: Direction) {
+    fn split_pane(&mut self, direction: Direction) {
         let source_id = self.focus;
         let new_id = self.get_next_pane_id();
         let handler = self.panes[&source_id].handler.clone();
@@ -154,16 +156,22 @@ impl TuiCompositorPlugin {
             self.main_window.split(new_id, source_id, direction);
         }
     }
-    pub fn resolve_layout(
+    fn get_all_size_constraints(
         &self,
-        terminal_size: (u16, u16),
-    ) -> (Vec<(PaneId, Rect)>, Vec<DrawCommand>) {
-        let terminal_rect = Rect {
-            offset: (0, 0),
-            size: terminal_size,
-        };
-        let (rects, commands) = resolve_layout(&self.main_window, terminal_rect);
-        (rects, translate_and_clip(commands, terminal_rect, false))
+        node: &LayoutNode,
+    ) -> Result<Vec<(PaneId, SizeConstraint)>, String> {
+        let mut size_constraints = vec![];
+        for pane_id in node.pane_ids() {
+            let size_constraint = match query_service(
+                &format!("{}.size_constraint", self.panes[&pane_id].handler),
+                &[pane_id.into()],
+            ) {
+                Ok(value) => SizeConstraint::try_from(value)?,
+                Err(_) => SizeConstraint::default(),
+            };
+            size_constraints.push((pane_id, size_constraint));
+        }
+        Ok(size_constraints)
     }
 }
 #[clm_plugin_api::clm_handlers(name = "tui-compositor")]
@@ -179,12 +187,16 @@ impl TuiCompositorPlugin {
         let mut commands = vec![];
 
         // メイン画面
-        let (rects, main_window_commands) = self.resolve_layout(terminal_size);
+        // レイアウト解決
+        let size_constraints = self.get_all_size_constraints(&self.main_window)?;
+        let main_window = self.main_window.with_size_constraint(&size_constraints);
+        let (rects, main_window_commands) = resolve_layout(&main_window, terminal_rect);
         commands.extend(translate_and_clip(
             main_window_commands,
             terminal_rect,
             false,
         ));
+        // ペイン描画
         for (pane_id, mut rect) in rects {
             rect.clip(terminal_rect);
             let handler = &self.panes[&pane_id].handler;
@@ -199,38 +211,56 @@ impl TuiCompositorPlugin {
                 pane_id == self.focus,
             ));
         }
+
         // フロートウィンドウ
         for (id, FloatWindow { root, handler }) in self.float_windows.iter() {
-            // 位置決め
+            // 位置決め（絶対座標）
             let mut float_window_rect: Rect = query_service(
                 &format!("{handler}.float_window_rect"),
                 &[id.into(), terminal_size.into()],
             )?
             .try_into()?;
             float_window_rect.clip(terminal_rect);
-
-            // レイアウト解決
+            // レイアウト解決（フロートウィンドウ基準の相対座標）
+            let size_constraints = self.get_all_size_constraints(root)?;
+            let float_window_size = float_window_rect.size;
             let (rects, float_window_commands) = if let Ok(rects_and_commands) = query_service(
                 &format!("{handler}.resolve_layout"),
-                &[root.into(), float_window_rect.into()],
+                &[
+                    root.into(),
+                    float_window_size.into(),
+                    (&size_constraints).into(),
+                ],
             ) {
                 rects_and_commands.try_into()?
             } else {
-                resolve_layout(root, float_window_rect)
+                let root = root.with_size_constraint(&size_constraints);
+                resolve_layout(
+                    &root,
+                    Rect {
+                        offset: (0, 0),
+                        size: float_window_size,
+                    },
+                )
             };
             commands.extend(translate_and_clip(
                 float_window_commands,
                 float_window_rect,
                 false,
             ));
-
-            for (pane_id, rect) in rects {
+            // ペイン描画
+            for (pane_id, mut rect) in rects {
+                rect.clip(Rect {
+                    offset: (0, 0),
+                    size: float_window_size,
+                });
                 let handler = &self.panes[&pane_id].handler;
                 let pane_commands: Vec<DrawCommand> = query_service(
                     &format!("{handler}.render_pane"),
                     &[pane_id.into(), rect.size.into()],
                 )?
                 .try_into()?;
+                rect.apply_offset(float_window_rect.offset);
                 commands.extend(translate_and_clip(
                     pane_commands,
                     rect,
@@ -348,6 +378,9 @@ fn translate_and_clip(commands: Vec<DrawCommand>, rect: Rect, is_focus: bool) ->
         .filter_map(|mut command| {
             match &mut command {
                 DrawCommand::DrawString { position, text } => {
+                    if rect.size.1 <= position.1 {
+                        return None;
+                    }
                     use unicode_width::UnicodeWidthStr;
                     while rect.size.0 < position.0 + text.width() as u16 {
                         text.pop();

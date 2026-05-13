@@ -32,18 +32,11 @@ impl CommandLinePlugin {
         let terminal_size: (u16, u16) = get_arg(args, 1)?;
 
         // 幅60%範囲30～80、高さ3
-        let size = (
-            ((terminal_size.0 as f64 * 0.6) as u16)
-                .clamp(30, 80)
-                .min(terminal_size.0.saturating_sub(2)),
-            3.min(terminal_size.1),
-        );
+        let size = (((terminal_size.0 as f64 * 0.6) as u16).clamp(30, 80), 3);
         // 真ん中ちょっと上
         let offset = (
             terminal_size.0.saturating_sub(size.0) / 2,
-            (terminal_size.1 / 6)
-                .max(2)
-                .min(terminal_size.1.saturating_sub(size.1)),
+            (terminal_size.1 / 6).max(2),
         );
 
         let rect = Rect { offset, size };
@@ -52,36 +45,35 @@ impl CommandLinePlugin {
     #[service]
     fn resolve_layout(&mut self, args: &[Value]) -> Result<Value, String> {
         let node: LayoutNode = get_arg(args, 0)?;
-        let float_window_rect: Rect = get_arg(args, 1)?;
+        let float_window_size: (u16, u16) = get_arg(args, 1)?;
         assert!(matches!(node, LayoutNode::Pane(pane_id) if pane_id == self.pane_id.unwrap()));
 
-        let mut cmdline_rect = float_window_rect;
-        cmdline_rect.offset.0 += 1;
-        cmdline_rect.offset.1 += 1;
-        cmdline_rect.size.0 = cmdline_rect.size.0.saturating_sub(2);
-        cmdline_rect.size.1 = cmdline_rect.size.1.saturating_sub(2);
+        let cmdline_rect = Rect {
+            offset: (1, 1),
+            size: (float_window_size.0.saturating_sub(2), 1),
+        };
 
         let mut commands = vec![];
-        for row in 0..float_window_rect.size.1 {
+        for row in 0..float_window_size.1 {
             if row == 0 {
                 commands.push(DrawCommand::DrawString {
                     position: (0, row),
                     text: "╔".to_string()
-                        + &"═".repeat(float_window_rect.size.0.saturating_sub(2) as usize)
+                        + &"═".repeat(float_window_size.0.saturating_sub(2) as usize)
                         + "╗",
                 });
-            } else if row + 1 == float_window_rect.size.1 {
+            } else if 2 <= row && row + 1 == float_window_size.1 {
                 commands.push(DrawCommand::DrawString {
                     position: (0, row),
                     text: "╚".to_string()
-                        + &"═".repeat(float_window_rect.size.0.saturating_sub(2) as usize)
+                        + &"═".repeat(float_window_size.0.saturating_sub(2) as usize)
                         + "╝",
                 });
             } else {
                 commands.push(DrawCommand::DrawString {
                     position: (0, row),
                     text: "║".to_string()
-                        + &" ".repeat(float_window_rect.size.0.saturating_sub(2) as usize)
+                        + &" ".repeat(float_window_size.0.saturating_sub(2) as usize)
                         + "║",
                 });
             }

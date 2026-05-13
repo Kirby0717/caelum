@@ -1,4 +1,6 @@
-pub fn distribute(constraints: &[(f64, (u16, u16))], total: u16) -> Vec<u16> {
+use clm_plugin_api::data::tui_layout::SizeRange;
+
+pub fn distribute(constraints: &[(f64, SizeRange)], total: u16) -> Vec<u16> {
     assert!(
         constraints
             .iter()
@@ -24,7 +26,7 @@ pub fn distribute(constraints: &[(f64, (u16, u16))], total: u16) -> Vec<u16> {
     }
 }
 
-fn distribute_by_waterlevel(constraints: &[(f64, (u16, u16))], total: u16) -> Vec<u16> {
+fn distribute_by_waterlevel(constraints: &[(f64, SizeRange)], total: u16) -> Vec<u16> {
     let h = find_waterlevel(constraints, total as f64);
     let ideals: Vec<f64> = constraints
         .iter()
@@ -33,7 +35,7 @@ fn distribute_by_waterlevel(constraints: &[(f64, (u16, u16))], total: u16) -> Ve
     round_largest_remainder(&ideals, total)
 }
 
-fn find_waterlevel(constraints: &[(f64, (u16, u16))], target: f64) -> f64 {
+fn find_waterlevel(constraints: &[(f64, SizeRange)], target: f64) -> f64 {
     let f_at = |h: f64| -> f64 {
         constraints
             .iter()
