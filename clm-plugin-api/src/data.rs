@@ -23,10 +23,23 @@ impl std::fmt::Display for Mode {
         write!(f, "{s}")
     }
 }
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, ConvertValueInApi)]
-pub struct CursorState {
-    pub row: usize,
-    pub byte_col: usize,
+
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Default,
+    Serialize,
+    Deserialize,
+    ConvertValueInApi,
+)]
+pub struct BufferPosition {
+    pub line_idx: usize,
+    pub byte_col_idx: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
@@ -89,15 +102,12 @@ pub enum CommandLineAction {
 pub enum BufferChange {
     Insert {
         buffer_id: id::BufferId,
-        start_line_idx: usize,
-        start_byte_col_idx: usize,
-        end_line_idx: usize,
-        end_byte_col_idx: usize,
+        start_position: BufferPosition,
+        end_position: BufferPosition,
     },
     Remove {
         buffer_id: id::BufferId,
-        line_idx: usize,
-        byte_col_idx: usize,
+        position: BufferPosition,
         text: String,
     },
     Save(id::BufferId),

@@ -1,7 +1,6 @@
 use clm_plugin_api::core::*;
 use clm_plugin_api::data::id::*;
 use clm_plugin_api::data::tui_layout::*;
-use clm_tui_compositor::DrawCommand;
 
 #[derive(Debug, Default)]
 pub struct CommandLinePlugin {
@@ -17,19 +16,22 @@ impl CommandLinePlugin {
 #[clm_plugin_api::clm_handlers(name = "cmdline")]
 impl CommandLinePlugin {
     #[service]
-    fn attach_float_window(&mut self, args: &[Value]) -> Result<Value, String> {
-        let float_id = get_arg(args, 0)?;
+    fn attach_float_window(&mut self, float_id: FloatId) -> Result<(), String> {
         assert!(self.float_id.is_none());
         self.float_id = Some(float_id);
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn is_focusable(&mut self, _args: &[Value]) -> Result<Value, String> {
-        Ok(true.into())
+    fn is_focusable(&self) -> Result<bool, String> {
+        Ok(true)
     }
     #[service]
-    fn float_window_rect(&mut self, args: &[Value]) -> Result<Value, String> {
-        let terminal_size: (u16, u16) = get_arg(args, 1)?;
+    fn float_window_rect(
+        &self,
+        float_id: FloatId,
+        terminal_size: (u16, u16),
+    ) -> Result<Rect, String> {
+        assert!(self.float_id == Some(float_id));
 
         // 幅60%範囲30～80、高さ3
         let size = (((terminal_size.0 as f64 * 0.6) as u16).clamp(30, 80), 3);
@@ -40,12 +42,14 @@ impl CommandLinePlugin {
         );
 
         let rect = Rect { offset, size };
-        Ok(rect.into())
+        Ok(rect)
     }
     #[service]
-    fn resolve_layout(&mut self, args: &[Value]) -> Result<Value, String> {
-        let node: LayoutNode = get_arg(args, 0)?;
-        let float_window_size: (u16, u16) = get_arg(args, 1)?;
+    fn resolve_layout(
+        &self,
+        node: LayoutNode,
+        float_window_size: (u16, u16),
+    ) -> Result<ResolvedLayout, String> {
         assert!(matches!(node, LayoutNode::Pane(pane_id) if pane_id == self.pane_id.unwrap()));
 
         let cmdline_rect = Rect {
@@ -79,28 +83,31 @@ impl CommandLinePlugin {
             }
         }
 
-        Ok((vec![(self.pane_id.unwrap(), cmdline_rect)], commands).into())
+        Ok(ResolvedLayout {
+            pane_rects: vec![(self.pane_id.unwrap(), cmdline_rect)],
+            back_draw_commands: commands,
+        })
     }
     #[service]
-    fn attach_pane(&mut self, args: &[Value]) -> Result<Value, String> {
-        let pane_id = get_arg(args, 0)?;
+    fn attach_pane(&mut self, pane_id: PaneId) -> Result<(), String> {
         assert!(self.pane_id.is_none());
         self.pane_id = Some(pane_id);
         self.buffer.clear();
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn pane_active(&mut self, _args: &[Value]) -> Result<Value, String> {
-        Ok(Value::Null)
+    fn pane_active(&self, pane_id: PaneId) -> Result<(), String> {
+        assert!(self.pane_id == Some(pane_id));
+        Ok(())
     }
     #[service]
-    fn render_pane(&mut self, _args: &[Value]) -> Result<Value, String> {
+    fn render_pane(&self, pane_id: PaneId) -> Result<Vec<DrawCommand>, String> {
+        assert!(self.pane_id == Some(pane_id));
         let commands = vec![DrawCommand::DrawString {
             position: (0, 0),
             text: ":ここに入力されたコマンドが入るよ！！！".to_string(),
         }];
-
-        Ok(commands.into())
+        Ok(commands)
     }
 }
 impl Plugin for CommandLinePlugin {

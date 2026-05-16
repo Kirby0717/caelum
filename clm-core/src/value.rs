@@ -419,13 +419,6 @@ impl<'de> de::Deserializer<'de> for ValueDeserializer {
         seq tuple tuple_struct
         map struct identifier ignored_any
     }
-    /*serde::forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64
-        char str string bytes byte_buf
-        unit unit_struct newtype_struct
-        seq tuple tuple_struct
-        map struct identifier ignored_any
-    }*/
 }
 
 pub struct ValueSeqAccess {
@@ -655,6 +648,21 @@ impl From<&String> for Value {
 impl From<String> for Value {
     fn from(value: String) -> Self {
         Value::Str(value)
+    }
+}
+impl From<&std::path::Path> for Value {
+    fn from(value: &std::path::Path) -> Self {
+        Value::Str(value.to_string_lossy().to_string())
+    }
+}
+impl From<&std::path::PathBuf> for Value {
+    fn from(value: &std::path::PathBuf) -> Self {
+        Value::Str(value.to_string_lossy().to_string())
+    }
+}
+impl From<std::path::PathBuf> for Value {
+    fn from(value: std::path::PathBuf) -> Self {
+        Value::Str(value.to_string_lossy().to_string())
     }
 }
 impl<T> From<Option<T>> for Value

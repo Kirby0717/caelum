@@ -1,55 +1,25 @@
 use std::io::stdout;
 
 use clm_plugin_api::core::*;
-use clm_plugin_api::{ConvertValue, priority};
+use clm_plugin_api::data::tui_layout::*;
+use clm_plugin_api::priority;
+use crossterm::cursor::SetCursorStyle;
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, ConvertValue)]
-pub struct CursorState {
-    position: (u16, u16),
-    style: CursorStyle,
-}
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ConvertValue,
-)]
-pub enum CursorStyle {
-    #[default]
-    DefaultUserShape,
-    BlinkingBlock,
-    SteadyBlock,
-    BlinkingUnderScore,
-    SteadyUnderScore,
-    BlinkingBar,
-    SteadyBar,
-}
-impl From<CursorStyle> for crossterm::cursor::SetCursorStyle {
-    fn from(value: CursorStyle) -> Self {
-        use CursorStyle::*;
-        match value {
-            DefaultUserShape => Self::DefaultUserShape,
-            BlinkingBlock => Self::BlinkingBlock,
-            SteadyBlock => Self::SteadyBlock,
-            BlinkingUnderScore => Self::BlinkingUnderScore,
-            SteadyUnderScore => Self::SteadyUnderScore,
-            BlinkingBar => Self::BlinkingBar,
-            SteadyBar => Self::SteadyBar,
-        }
+fn convert_cursor_style(value: CursorStyle) -> SetCursorStyle {
+    use CursorStyle::*;
+    match value {
+        DefaultUserShape => SetCursorStyle::DefaultUserShape,
+        BlinkingBlock => SetCursorStyle::BlinkingBlock,
+        SteadyBlock => SetCursorStyle::SteadyBlock,
+        BlinkingUnderScore => SetCursorStyle::BlinkingUnderScore,
+        SteadyUnderScore => SetCursorStyle::SteadyUnderScore,
+        BlinkingBar => SetCursorStyle::BlinkingBar,
+        SteadyBar => SetCursorStyle::SteadyBar,
     }
-}
-#[derive(Debug, Clone, Serialize, Deserialize, ConvertValue)]
-pub enum DrawCommand {
-    DrawString {
-        position: (u16, u16),
-        text: String,
-    },
-    SetCursor {
-        position: (u16, u16),
-        style: CursorStyle,
-    },
 }
 
 #[derive(Debug, Default)]
@@ -62,7 +32,7 @@ impl TuiDriverPlugin {
 #[clm_plugin_api::clm_handlers(name = "tui-driver")]
 impl TuiDriverPlugin {
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_request_redraw(&mut self, _data: &Value) -> EventResult {
+    fn on_request_redraw(&self, _data: &Value) -> EventResult {
         let terminal_size = crossterm::terminal::size().unwrap();
         let commands: Vec<DrawCommand> =
             query_service("tui-compositor.build_frame", &[terminal_size.into()])
@@ -199,7 +169,7 @@ fn convert_key_event(
 fn draw(commands: Vec<DrawCommand>) -> std::io::Result<()> {
     use std::io::stdout;
 
-    use crossterm::cursor::{Hide, MoveTo, SetCursorStyle, Show};
+    use crossterm::cursor::{Hide, MoveTo, Show};
     use crossterm::execute;
     use crossterm::style::Print;
     use crossterm::terminal::{Clear, ClearType};
@@ -221,7 +191,7 @@ fn draw(commands: Vec<DrawCommand>) -> std::io::Result<()> {
             stdout(),
             Show,
             MoveTo(position.0, position.1),
-            SetCursorStyle::from(style),
+            convert_cursor_style(style),
         )?;
     } else {
         execute!(stdout(), Hide)?;

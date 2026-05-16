@@ -22,6 +22,37 @@ impl Rect {
         self.size.1 = self.size.1.min(outer.size.1 - self.offset.1);
     }
 }
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, ConvertValueInApi,
+)]
+pub enum CursorStyle {
+    #[default]
+    DefaultUserShape,
+    BlinkingBlock,
+    SteadyBlock,
+    BlinkingUnderScore,
+    SteadyUnderScore,
+    BlinkingBar,
+    SteadyBar,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, ConvertValueInApi)]
+pub enum DrawCommand {
+    DrawString {
+        position: (u16, u16),
+        text: String,
+    },
+    SetCursor {
+        position: (u16, u16),
+        style: CursorStyle,
+    },
+}
+#[derive(Debug, Clone, Serialize, Deserialize, ConvertValueInApi)]
+pub struct ResolvedLayout {
+    pub pane_rects: Vec<(PaneId, Rect)>,
+    pub back_draw_commands: Vec<DrawCommand>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ConvertValueInApi)]
 pub enum Direction {
     Horizontal,

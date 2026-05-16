@@ -2,19 +2,23 @@ use std::collections::HashMap;
 
 use clm_plugin_api::core::*;
 use clm_plugin_api::data::id::*;
+use clm_plugin_api::data::tui_layout::*;
 use clm_plugin_api::data::*;
 
 #[derive(Debug)]
 pub struct PaneState {
     pub buffer_id: BufferId,
-    pub cursor: CursorState,
+    pub cursor: BufferPosition,
     pub view_offset: (usize, usize),
 }
 impl PaneState {
     fn new(buffer_id: BufferId) -> Self {
         Self {
             buffer_id,
-            cursor: CursorState::default(),
+            cursor: BufferPosition {
+                line_idx: 0,
+                byte_col_idx: 0,
+            },
             view_offset: (0, 0),
         }
     }
@@ -24,40 +28,34 @@ impl PaneState {
             .try_into()
             .unwrap()
     }
-    fn line(&self, row: usize) -> Option<String> {
-        query_service("buffer.line", &[self.buffer_id.into(), row.into()])
+    fn line(&self, line_idx: usize) -> Option<String> {
+        query_service("buffer.line", &[self.buffer_id.into(), line_idx.into()])
             .unwrap()
             .try_into()
             .unwrap()
     }
-    fn line_len_bytes(&self, row: usize) -> Option<usize> {
+    fn line_len_bytes(&self, line_idx: usize) -> Option<usize> {
         query_service(
             "buffer.line_len_bytes",
-            &[self.buffer_id.into(), row.into()],
+            &[self.buffer_id.into(), line_idx.into()],
         )
         .unwrap()
         .try_into()
         .unwrap()
     }
     fn clamp_cursor(&mut self, mode: Mode) {
-        use unicode_width::UnicodeWidthChar;
         let mut cursor = self.cursor;
-        let max_row = self.len_lines().saturating_sub(1);
-        cursor.row = cursor.row.min(max_row);
-        let line = self.line(cursor.row).unwrap();
+        let max_lines = self.len_lines().saturating_sub(1);
+        cursor.line_idx = cursor.line_idx.min(max_lines);
+        let line = self.line(cursor.line_idx).unwrap();
         let max_col = match mode {
             Mode::Insert => line.len(),
-            _ => line.len() - line.chars().next_back().and_then(char::width).unwrap_or(0),
+            _ => line.char_indices().last().map_or(0, |(idx, _)| idx),
         };
-        cursor.byte_col = cursor.byte_col.min(max_col);
+        cursor.byte_col_idx = cursor.byte_col_idx.min(max_col);
         self.cursor = cursor;
     }
-    fn render(
-        &mut self,
-        mode: Mode,
-        size: (u16, u16),
-    ) -> Result<Vec<clm_tui_compositor::DrawCommand>, String> {
-        use clm_tui_compositor::*;
+    fn render(&mut self, mode: Mode, size: (u16, u16)) -> Result<Vec<DrawCommand>, String> {
         use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
         let size = (size.0 as usize, size.1 as usize);
@@ -67,22 +65,22 @@ impl PaneState {
         let buffer_id = self.buffer_id;
         let view_offset = &mut self.view_offset;
         let cursor_line: String =
-            query_service_anyhow("buffer.line", &[buffer_id.into(), cursor.row.into()])
+            query_service_anyhow("buffer.line", &[buffer_id.into(), cursor.line_idx.into()])
                 .unwrap()
                 .try_into()
                 .unwrap();
 
         // オフセットの計算
         {
-            if cursor.row < view_offset.1 {
-                view_offset.1 = cursor.row;
+            if cursor.line_idx < view_offset.1 {
+                view_offset.1 = cursor.line_idx;
             }
-            if view_offset.1 + size.1 <= cursor.row {
-                view_offset.1 = cursor.row - (size.1 - 1);
+            if view_offset.1 + size.1 <= cursor.line_idx {
+                view_offset.1 = cursor.line_idx - (size.1 - 1);
             }
-            let display_col_l = cursor_line[..cursor.byte_col].width();
+            let display_col_l = cursor_line[..cursor.byte_col_idx].width();
             let display_col_r = display_col_l
-                + cursor_line[cursor.byte_col..]
+                + cursor_line[cursor.byte_col_idx..]
                     .chars()
                     .next()
                     .and_then(char::width)
@@ -96,22 +94,22 @@ impl PaneState {
         }
 
         // バッファーの表示
-        for row in 0..size.1 {
-            let line: Option<String> = query_service_anyhow(
-                "buffer.line",
-                &[buffer_id.into(), (view_offset.1 + row).into()],
-            )
-            .unwrap()
-            .try_into()
-            .unwrap();
-            if let Some(line) = line {
-                commands.push(DrawCommand::DrawString {
-                    position: (0, row as u16),
-                    text: trim_display_range(&line, view_offset.0, view_offset.0 + size.0),
-                });
-            } else {
-                break;
-            }
+        let lines: Vec<String> = query_service_anyhow(
+            "buffer.lines",
+            &[
+                buffer_id.into(),
+                view_offset.1.into(),
+                (view_offset.1 + size.1).into(),
+            ],
+        )
+        .unwrap()
+        .try_into()
+        .unwrap();
+        for (row, line) in lines.into_iter().enumerate() {
+            commands.push(DrawCommand::DrawString {
+                position: (0, row as u16),
+                text: trim_display_range(&line, view_offset.0, view_offset.0 + size.0),
+            });
         }
         // ステータスラインの設定
         /*execute!(stdout(), MoveTo(0, size.1 - 1))?;
@@ -123,11 +121,11 @@ impl PaneState {
         // カーソルの設定
         match mode {
             Mode::Normal | Mode::Insert => {
-                let x = cursor_line[..cursor.byte_col].width();
+                let x = cursor_line[..cursor.byte_col_idx].width();
                 commands.push(DrawCommand::SetCursor {
                     position: (
                         x.saturating_sub(view_offset.0) as u16,
-                        cursor.row.saturating_sub(view_offset.1) as u16,
+                        cursor.line_idx.saturating_sub(view_offset.1) as u16,
                     ),
                     style: match mode {
                         Mode::Normal => CursorStyle::SteadyBlock,
@@ -190,13 +188,12 @@ impl ModalPlugin {
 #[clm_plugin_api::clm_handlers(name = "modal")]
 impl ModalPlugin {
     #[service]
-    fn quit(&mut self, _args: &[Value]) -> Result<Value, String> {
+    fn quit(&self) -> Result<(), String> {
         quit();
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn set_mode(&mut self, args: &[Value]) -> Result<Value, String> {
-        let mode: Mode = get_arg(args, 0)?;
+    fn set_mode(&mut self, mode: Mode) -> Result<(), String> {
         if let Some(state) = self.active_pane_state() {
             let buffer_id = state.buffer_id;
             if self.mode != Mode::Insert && mode == Mode::Insert {
@@ -231,11 +228,10 @@ impl ModalPlugin {
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
         );
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn cursor_move(&mut self, args: &[Value]) -> Result<Value, String> {
-        let mv: CursorMove = get_arg(args, 0)?;
+    fn cursor_move(&mut self, mv: CursorMove) -> Result<(), String> {
         match self.mode {
             Mode::Normal | Mode::Insert => {
                 let Some(state) = self.active_pane_state_mut() else {
@@ -243,31 +239,31 @@ impl ModalPlugin {
                 };
                 match mv {
                     CursorMove::Up { count } => {
-                        let row = state.cursor.row;
-                        state.cursor.row = row.saturating_sub(count);
+                        let line_idx = state.cursor.line_idx;
+                        state.cursor.line_idx = line_idx.saturating_sub(count);
                     }
                     CursorMove::Down { count } => {
-                        state.cursor.row += count;
+                        state.cursor.line_idx += count;
                     }
                     CursorMove::Left { count } => {
                         if count == 0 {
-                            return Ok(Value::Null);
+                            return Ok(());
                         }
-                        let line = state.line(state.cursor.row).unwrap();
-                        let left = &line[..state.cursor.byte_col];
+                        let line = state.line(state.cursor.line_idx).unwrap();
+                        let left = &line[..state.cursor.byte_col_idx];
                         if let Some((i, _)) = left.char_indices().nth_back(count - 1) {
-                            state.cursor.byte_col = i;
+                            state.cursor.byte_col_idx = i;
                         } else {
-                            state.cursor.byte_col = 0;
+                            state.cursor.byte_col_idx = 0;
                         }
                     }
                     CursorMove::Right { count } => {
-                        let line = state.line(state.cursor.row).unwrap();
-                        let right = &line[state.cursor.byte_col..];
+                        let line = state.line(state.cursor.line_idx).unwrap();
+                        let right = &line[state.cursor.byte_col_idx..];
                         if let Some((i, _)) = right.char_indices().nth(count) {
-                            state.cursor.byte_col += i;
+                            state.cursor.byte_col_idx += i;
                         } else {
-                            state.cursor.byte_col = line.len();
+                            state.cursor.byte_col_idx = line.len();
                         }
                     }
                     _ => {}
@@ -277,7 +273,7 @@ impl ModalPlugin {
             Mode::Command => match mv {
                 CursorMove::Left { count } => {
                     if count == 0 {
-                        return Ok(Value::Null);
+                        return Ok(());
                     }
                     let left = &self.command_line[..self.command_line_cursor];
                     if let Some((i, _)) = left.char_indices().nth_back(count - 1) {
@@ -304,11 +300,10 @@ impl ModalPlugin {
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
         );
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn edit(&mut self, args: &[Value]) -> Result<Value, String> {
-        let edit: EditAction = get_arg(args, 0)?;
+    fn edit(&mut self, edit: EditAction) -> Result<(), String> {
         let key_holder = self.key_holder;
         let Some(state) = self.active_pane_state_mut() else {
             return Err("no active pane".to_string());
@@ -320,103 +315,74 @@ impl ModalPlugin {
                     "buffer.insert",
                     &[
                         state.buffer_id.into(),
-                        cursor.row.into(),
-                        cursor.byte_col.into(),
+                        cursor.into(),
                         text.clone().into(),
                         key_holder.into(),
                     ],
                 )?;
-                cursor.byte_col += text.len();
+                cursor.byte_col_idx += text.len();
             }
             EditAction::DeleteCharForward => {
-                let line = state.line(cursor.row).unwrap();
-                let right_one = &line[cursor.byte_col..].chars().next();
+                let line = state.line(cursor.line_idx).unwrap();
+                let right_one = &line[cursor.byte_col_idx..].chars().next();
+                let mut end_position = cursor;
                 if let Some(c) = right_one {
                     // 通常
-                    let next_size = c.len_utf8();
-                    query_service(
-                        "buffer.remove",
-                        &[
-                            state.buffer_id.into(),
-                            cursor.row.into(),
-                            cursor.byte_col.into(),
-                            cursor.row.into(),
-                            (cursor.byte_col + next_size).into(),
-                            key_holder.into(),
-                        ],
-                    )?;
+                    end_position.byte_col_idx += c.len_utf8();
                 } else {
                     // 行末
-                    if cursor.row + 1 < state.len_lines() {
-                        query_service(
-                            "buffer.remove",
-                            &[
-                                state.buffer_id.into(),
-                                cursor.row.into(),
-                                cursor.byte_col.into(),
-                                (cursor.row + 1).into(),
-                                0_usize.into(),
-                                key_holder.into(),
-                            ],
-                        )?;
-                    }
+                    end_position = BufferPosition {
+                        line_idx: cursor.line_idx + 1,
+                        byte_col_idx: 0,
+                    };
                 }
+                query_service(
+                    "buffer.remove",
+                    &[
+                        state.buffer_id.into(),
+                        cursor.into(),
+                        end_position.into(),
+                        key_holder.into(),
+                    ],
+                )?;
             }
             EditAction::DeleteCharBackward => {
-                if cursor.row == 0 && cursor.byte_col == 0 {
-                    return Ok(Value::Null);
-                }
-
-                let line = state.line(cursor.row).unwrap();
-                let left_one = &line[..cursor.byte_col].chars().next_back();
+                let line = state.line(cursor.line_idx).unwrap();
+                let left_one = &line[..cursor.byte_col_idx].chars().next_back();
+                let end_position = cursor;
                 if let Some(c) = left_one {
                     // 通常
-                    let prev_size = c.len_utf8();
-                    query_service(
-                        "buffer.remove",
-                        &[
-                            state.buffer_id.into(),
-                            cursor.row.into(),
-                            (cursor.byte_col - prev_size).into(),
-                            cursor.row.into(),
-                            cursor.byte_col.into(),
-                            key_holder.into(),
-                        ],
-                    )?;
-                    cursor.byte_col -= prev_size;
+                    cursor.byte_col_idx = cursor.byte_col_idx.saturating_sub(c.len_utf8());
                 } else {
                     // 行頭
-                    if cursor.row != 0 {
-                        let prev_line_len_bytes = state.line_len_bytes(cursor.row - 1).unwrap();
-                        query_service(
-                            "buffer.remove",
-                            &[
-                                state.buffer_id.into(),
-                                (cursor.row - 1).into(),
-                                prev_line_len_bytes.into(),
-                                cursor.row.into(),
-                                0_usize.into(),
-                                key_holder.into(),
-                            ],
-                        )?;
-                        cursor.row -= 1;
-                        cursor.byte_col = prev_line_len_bytes;
+                    if cursor.line_idx != 0 {
+                        cursor.line_idx -= 1;
+                        let prev_line_len_bytes = state.line_len_bytes(cursor.line_idx).unwrap();
+                        cursor.byte_col_idx = prev_line_len_bytes;
                     }
                 }
+                query_service(
+                    "buffer.remove",
+                    &[
+                        state.buffer_id.into(),
+                        cursor.into(),
+                        end_position.into(),
+                        key_holder.into(),
+                    ],
+                )?;
             }
             EditAction::NewLine => {
                 query_service(
                     "buffer.insert",
                     &[
                         state.buffer_id.into(),
-                        cursor.row.into(),
-                        cursor.byte_col.into(),
+                        cursor.into(),
                         "\n".to_string().into(),
                         key_holder.into(),
                     ],
                 )?;
-                cursor.row += 1;
-                cursor.byte_col = 0;
+                cursor.line_idx += 1;
+                cursor.byte_col_idx = 0;
             }
             EditAction::Undo => {
                 query_service("buffer.undo", &[state.buffer_id.into()])?;
@@ -435,11 +401,10 @@ impl ModalPlugin {
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
         );
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn command_line_action(&mut self, args: &[Value]) -> Result<Value, String> {
-        let cmd_action: CommandLineAction = get_arg(args, 0)?;
+    fn command_line_action(&mut self, cmd_action: CommandLineAction) -> Result<(), String> {
         let command_line = &mut self.command_line;
         let cursor = self.command_line_cursor;
         match cmd_action {
@@ -449,14 +414,14 @@ impl ModalPlugin {
             }
             CommandLineAction::DeleteCharForward => {
                 if command_line.len() < cursor {
-                    return Ok(Value::Null);
+                    return Ok(());
                 }
                 let next_size = command_line[cursor..].chars().next().unwrap().len_utf8();
                 command_line.drain(cursor..cursor + next_size);
             }
             CommandLineAction::DeleteCharBackward => {
                 if cursor != 0 {
-                    return Ok(Value::Null);
+                    return Ok(());
                 }
                 let prev_size = command_line[..cursor]
                     .chars()
@@ -490,19 +455,21 @@ impl ModalPlugin {
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
         );
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn switch_buffer(&mut self, args: &[Value]) -> Result<Value, String> {
+    fn switch_buffer(&mut self, buffer_id: BufferId) -> Result<(), String> {
         let Some(state) = self.active_pane_state_mut() else {
             return Err("no active pane".to_string());
         };
-        let buffer_id: BufferId = get_arg(args, 0)?;
         if state.buffer_id == buffer_id {
-            return Ok(Value::Null);
+            return Ok(());
         }
         state.buffer_id = buffer_id;
-        state.cursor = CursorState::default();
+        state.cursor = BufferPosition {
+            line_idx: 0,
+            byte_col_idx: 0,
+        };
         self.clamp_cursor();
         emit_event(
             Event {
@@ -511,10 +478,10 @@ impl ModalPlugin {
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
         );
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn open_command(&mut self, _args: &[Value]) -> Result<Value, String> {
+    fn open_command(&mut self) -> Result<(), String> {
         emit_event(
             Event {
                 kind: EventKind("open_float_window".to_string()),
@@ -526,52 +493,46 @@ impl ModalPlugin {
             },
             DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
         );
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn attach_pane(&mut self, args: &[Value]) -> Result<Value, String> {
-        let pane_id: PaneId = get_arg(args, 0)?;
-        let path: Option<String> = get_arg(args, 1).unwrap_or_default();
+    fn attach_pane(&mut self, pane_id: PaneId, path: Option<String>) -> Result<(), String> {
         let buffer_id: BufferId = if let Some(path) = path {
             query_service("buffer.open", &[path.into()])?.try_into()?
         } else {
             query_service("buffer.create", &[])?.try_into()?
         };
         self.panes.insert(pane_id, PaneState::new(buffer_id));
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn render_pane(&mut self, args: &[Value]) -> Result<Value, String> {
-        let pane_id: PaneId = get_arg(args, 0)?;
-        let size: (u16, u16) = get_arg(args, 1)?;
-        Ok(self
-            .panes
+    fn render_pane(
+        &mut self,
+        pane_id: PaneId,
+        size: (u16, u16),
+    ) -> Result<Vec<DrawCommand>, String> {
+        self.panes
             .get_mut(&pane_id)
             .unwrap()
-            .render(self.mode, size)?
-            .into())
+            .render(self.mode, size)
     }
     #[service]
-    fn split_pane(&mut self, args: &[Value]) -> Result<Value, String> {
-        let new_id: PaneId = get_arg(args, 0)?;
-        let source_id: PaneId = get_arg(args, 1)?;
+    fn split_pane(&mut self, new_id: PaneId, source_id: PaneId) -> Result<(), String> {
         let Some(pane_state) = self.panes.get(&source_id) else {
             return Err(format!("modal don't have pane: {source_id:?}"));
         };
         self.panes
             .insert(new_id, PaneState::new(pane_state.buffer_id));
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn pane_active(&mut self, args: &[Value]) -> Result<Value, String> {
+    fn pane_active(&mut self, pane_id: PaneId) -> Result<(), String> {
         assert!(self.active_pane.is_none());
-        let pane_id: PaneId = get_arg(args, 0)?;
         self.active_pane = Some(pane_id);
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn pane_inactive(&mut self, args: &[Value]) -> Result<Value, String> {
-        let pane_id: PaneId = get_arg(args, 0)?;
+    fn pane_inactive(&mut self, pane_id: PaneId) -> Result<(), String> {
         assert_eq!(self.active_pane, Some(pane_id));
         if let Some(key) = self.key_holder {
             let state = self.active_pane_state().unwrap();
@@ -581,19 +542,15 @@ impl ModalPlugin {
         }
         self.mode = Mode::Normal;
         self.active_pane = None;
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn mode(&self, _args: &[Value]) -> Result<Value, String> {
-        Ok(self.mode.into())
+    fn mode(&self) -> Result<Mode, String> {
+        Ok(self.mode)
     }
     #[service]
-    fn command_line(&self, _args: &[Value]) -> Result<Value, String> {
-        Ok(self.command_line.clone().into())
-    }
-    #[service]
-    fn command_line_cursor(&self, _args: &[Value]) -> Result<Value, String> {
-        Ok(self.command_line_cursor.into())
+    fn command_line(&self) -> Result<String, String> {
+        Ok(self.command_line.clone())
     }
 }
 

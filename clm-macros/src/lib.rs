@@ -125,17 +125,47 @@ pub fn clm_handlers(
 
         // EventHandler
         if let Some(subscribe_attr) = subscribe_attr {
-            handler_consts.push(quote! {
-                const #const_name: ::clm_plugin_api::core::RawEventHandler = {
-                    unsafe fn __raw_event_handler(
-                        ptr: *mut (),
-                        data: &::clm_plugin_api::core::Value,
-                    ) -> ::clm_plugin_api::core::EventResult {
-                        (&mut *(ptr as *mut #type_name)).#method_name(data)
-                    }
-                    __raw_event_handler
-                };
-            });
+            let arg_types: Vec<_> = sig
+                .inputs
+                .iter()
+                .filter_map(|arg| {
+                    let syn::FnArg::Typed(pat_type) = arg else {
+                        return None;
+                    };
+                    Some(pat_type.ty.clone())
+                })
+                .collect();
+            if 1 < arg_types.len() {
+                panic!("subscribe args len should 0 or 1");
+            }
+            if let Some(arg_type) = arg_types.first() {
+                handler_consts.push(quote! {
+                    const #const_name: ::clm_plugin_api::core::RawEventHandler = {
+                        unsafe fn __raw_event_handler(
+                            ptr: *mut (),
+                            data: &::clm_plugin_api::core::Value,
+                        ) -> ::clm_plugin_api::core::EventResult {
+                            let Ok(arg) = #arg_type::try_from(data.clone()) else {
+                                return EventResult::Propagate;
+                            };
+                            (&mut *(ptr as *mut #type_name)).#method_name(arg)
+                        }
+                        __raw_event_handler
+                    };
+                });
+            } else {
+                handler_consts.push(quote! {
+                    const #const_name: ::clm_plugin_api::core::RawEventHandler = {
+                        unsafe fn __raw_event_handler(
+                            ptr: *mut (),
+                            _data: &::clm_plugin_api::core::Value,
+                        ) -> ::clm_plugin_api::core::EventResult {
+                            (&mut *(ptr as *mut #type_name)).#method_name()
+                        }
+                        __raw_event_handler
+                    };
+                });
+            }
             subscribes.push(SubscribeInfo {
                 kind: subscribe_attr.kind.unwrap_or({
                     let method_name = method_name.to_string();
@@ -150,6 +180,18 @@ pub fn clm_handlers(
             });
         }
         if let Some(service_attr) = service_attr {
+            let (arg_idents, (arg_types, arg_indices)): (Vec<_>, (Vec<_>, Vec<_>)) = sig
+                .inputs
+                .iter()
+                .filter_map(|arg| {
+                    let syn::FnArg::Typed(pat_type) = arg else {
+                        return None;
+                    };
+                    Some(pat_type.ty.clone())
+                })
+                .enumerate()
+                .map(|(i, ty)| (format_ident!("arg{i}"), (ty, i)))
+                .unzip();
             // MutServiceHandler
             if receiver.mutability.is_some() {
                 handler_consts.push(quote! {
@@ -158,7 +200,8 @@ pub fn clm_handlers(
                             ptr: *mut (),
                             args: &[::clm_plugin_api::core::Value],
                         ) -> ::std::result::Result<::clm_plugin_api::core::Value, ::std::string::String> {
-                            (&mut *(ptr as *mut #type_name)).#method_name(args)
+                            #(let #arg_idents: #arg_types = ::clm_plugin_api::core::get_arg(args, #arg_indices)?;)*
+                            Ok((&mut *(ptr as *mut #type_name)).#method_name(#(#arg_idents),*)?.into())
                         }
                         __raw_mut_service_handler
                     };
@@ -172,7 +215,8 @@ pub fn clm_handlers(
                             ptr: *const (),
                             args: &[::clm_plugin_api::core::Value],
                         ) -> ::std::result::Result<::clm_plugin_api::core::Value, ::std::string::String> {
-                            (&*(ptr as *const #type_name)).#method_name(args)
+                            #(let #arg_idents: #arg_types = ::clm_plugin_api::core::get_arg(args, #arg_indices)?;)*
+                            Ok((&*(ptr as *const #type_name)).#method_name(#(#arg_idents),*)?.into())
                         }
                         __raw_service_handler
                     };

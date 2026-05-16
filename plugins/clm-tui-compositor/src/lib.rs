@@ -1,4 +1,3 @@
-// TODO: フロートウィンドウの実装
 mod utility;
 
 use std::collections::HashMap;
@@ -8,16 +7,16 @@ use clm_plugin_api::data::id::*;
 use clm_plugin_api::data::tui_layout::*;
 use clm_plugin_api::data::*;
 use clm_plugin_api::priority;
-pub use clm_tui_driver::{CursorStyle, DrawCommand};
 
 fn resolve_layout(
     node: &LayoutNodeWithSizeConstraint,
     Rect { mut offset, size }: Rect,
-) -> (Vec<(PaneId, Rect)>, Vec<DrawCommand>) {
+) -> ResolvedLayout {
     match node {
-        LayoutNodeWithSizeConstraint::Pane((pane_id, _)) => {
-            (vec![(*pane_id, Rect { offset, size })], vec![])
-        }
+        LayoutNodeWithSizeConstraint::Pane((pane_id, _)) => ResolvedLayout {
+            pane_rects: vec![(*pane_id, Rect { offset, size })],
+            back_draw_commands: vec![],
+        },
         LayoutNodeWithSizeConstraint::Split {
             direction,
             children,
@@ -38,15 +37,20 @@ fn resolve_layout(
                             text: "│".repeat(size.0 as usize),
                         });
                     }
-                    (vec![], commands)
+                    ResolvedLayout {
+                        pane_rects: vec![],
+                        back_draw_commands: commands,
+                    }
                 } else {
                     let width = utility::distribute(&weights, size.0 + 1 - pane_len);
                     let mut rects = vec![];
                     let mut commands = vec![];
                     for (((_, node), wideth), i) in children.iter().zip(width).zip(1..) {
                         let size = (wideth, size.1);
-                        let (node_rects, node_commands) =
-                            resolve_layout(node, Rect { offset, size });
+                        let ResolvedLayout {
+                            pane_rects: node_rects,
+                            back_draw_commands: node_commands,
+                        } = resolve_layout(node, Rect { offset, size });
                         rects.extend(node_rects);
                         commands.extend(translate_and_clip(
                             node_commands,
@@ -64,7 +68,10 @@ fn resolve_layout(
                         }
                         offset.0 += wideth + 1;
                     }
-                    (rects, commands)
+                    ResolvedLayout {
+                        pane_rects: rects,
+                        back_draw_commands: commands,
+                    }
                 }
             }
             Direction::Vertical => {
@@ -76,7 +83,10 @@ fn resolve_layout(
                 let mut rects = vec![];
                 let mut commands = vec![];
                 for ((_, node), height) in children.iter().zip(height) {
-                    let (node_rects, node_commands) = resolve_layout(
+                    let ResolvedLayout {
+                        pane_rects: node_rects,
+                        back_draw_commands: node_commands,
+                    } = resolve_layout(
                         node,
                         Rect {
                             offset,
@@ -87,7 +97,10 @@ fn resolve_layout(
                     commands.extend(node_commands);
                     offset.1 += height;
                 }
-                (rects, commands)
+                ResolvedLayout {
+                    pane_rects: rects,
+                    back_draw_commands: commands,
+                }
             }
         },
     }
@@ -177,8 +190,7 @@ impl TuiCompositorPlugin {
 #[clm_plugin_api::clm_handlers(name = "tui-compositor")]
 impl TuiCompositorPlugin {
     #[service]
-    fn build_frame(&self, args: &[Value]) -> Result<Value, String> {
-        let terminal_size: (u16, u16) = get_arg(args, 0)?;
+    fn build_frame(&self, terminal_size: (u16, u16)) -> Result<Vec<DrawCommand>, String> {
         let terminal_rect = Rect {
             offset: (0, 0),
             size: terminal_size,
@@ -190,14 +202,13 @@ impl TuiCompositorPlugin {
         // レイアウト解決
         let size_constraints = self.get_all_size_constraints(&self.main_window)?;
         let main_window = self.main_window.with_size_constraint(&size_constraints);
-        let (rects, main_window_commands) = resolve_layout(&main_window, terminal_rect);
-        commands.extend(translate_and_clip(
-            main_window_commands,
-            terminal_rect,
-            false,
-        ));
+        let ResolvedLayout {
+            pane_rects,
+            back_draw_commands,
+        } = resolve_layout(&main_window, terminal_rect);
+        commands.extend(translate_and_clip(back_draw_commands, terminal_rect, false));
         // ペイン描画
-        for (pane_id, mut rect) in rects {
+        for (pane_id, mut rect) in pane_rects {
             rect.clip(terminal_rect);
             let handler = &self.panes[&pane_id].handler;
             let pane_commands: Vec<DrawCommand> = query_service(
@@ -224,7 +235,10 @@ impl TuiCompositorPlugin {
             // レイアウト解決（フロートウィンドウ基準の相対座標）
             let size_constraints = self.get_all_size_constraints(root)?;
             let float_window_size = float_window_rect.size;
-            let (rects, float_window_commands) = if let Ok(rects_and_commands) = query_service(
+            let ResolvedLayout {
+                pane_rects,
+                back_draw_commands,
+            } = if let Ok(rects_and_commands) = query_service(
                 &format!("{handler}.resolve_layout"),
                 &[
                     root.into(),
@@ -244,12 +258,12 @@ impl TuiCompositorPlugin {
                 )
             };
             commands.extend(translate_and_clip(
-                float_window_commands,
+                back_draw_commands,
                 float_window_rect,
                 false,
             ));
             // ペイン描画
-            for (pane_id, mut rect) in rects {
+            for (pane_id, mut rect) in pane_rects {
                 rect.clip(Rect {
                     offset: (0, 0),
                     size: float_window_size,
@@ -268,32 +282,30 @@ impl TuiCompositorPlugin {
                 ));
             }
         }
-        Ok(commands.into())
+        Ok(commands)
     }
     #[service]
-    fn split(&mut self, _args: &[Value]) -> Result<Value, String> {
+    fn split(&mut self) -> Result<(), String> {
         self.split_pane(Direction::Vertical);
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn vsplit(&mut self, _args: &[Value]) -> Result<Value, String> {
+    fn vsplit(&mut self) -> Result<(), String> {
         self.split_pane(Direction::Horizontal);
-        Ok(Value::Null)
+        Ok(())
     }
     #[service]
-    fn focus_pane(&self, _args: &[Value]) -> Result<Value, String> {
-        Ok(self.focus.into())
+    fn focus_pane(&self) -> Result<PaneId, String> {
+        Ok(self.focus)
     }
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_open_float_window(&mut self, data: &Value) -> EventResult {
-        let Ok(OpenFloatWindowConfig {
+    fn on_open_float_window(
+        &mut self,
+        OpenFloatWindowConfig {
             float_window_handler,
             pane_handler,
-        }) = OpenFloatWindowConfig::try_from(data.clone())
-        else {
-            return EventResult::Propagate;
-        };
-
+        }: OpenFloatWindowConfig,
+    ) -> EventResult {
         let float_id = self.get_next_float_id();
         let pane_id = self.get_next_pane_id();
         query_service(

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use clm_plugin_api::core::*;
-use clm_plugin_api::data::id::PaneId;
+use clm_plugin_api::data::id::*;
 use clm_plugin_api::data::input::*;
 use clm_plugin_api::data::*;
 use clm_plugin_api::priority;
@@ -355,7 +355,7 @@ impl KeymapPlugin {
 #[clm_plugin_api::clm_handlers(name = "keymap")]
 impl KeymapPlugin {
     #[subscribe(kind = "key_input", priority = priority::DEFAULT - 1)]
-    fn on_key_input_editing(&mut self, data: &Value) -> EventResult {
+    fn on_key_input_editing(&self, data: &Value) -> EventResult {
         let Ok(key_event) = KeyEvent::try_from(data.clone()) else {
             return EventResult::Propagate;
         };
