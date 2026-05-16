@@ -124,24 +124,24 @@ pub struct TuiCompositorPlugin {
 }
 impl TuiCompositorPlugin {
     pub fn new(handler: &str, args: &[Value]) -> Self {
-        let id = PaneId(0);
-        let mut attach_args = vec![id.into()];
+        let pane_id = PaneId(0);
+        let mut attach_args = vec![pane_id.into()];
         attach_args.extend_from_slice(args);
         query_service(&format!("{handler}.attach_pane"), &attach_args).unwrap();
-        query_service(&format!("{handler}.pane_active"), &[id.into()]).unwrap();
+        query_service(&format!("{handler}.pane_active"), &[pane_id.into()]).unwrap();
 
         Self {
-            main_window: LayoutNode::Pane(id),
+            main_window: LayoutNode::Pane(pane_id),
             float_windows: HashMap::new(),
             panes: HashMap::from([(
-                id,
+                pane_id,
                 PaneEntry {
                     parent: None,
                     handler: handler.to_string(),
                 },
             )]),
             focus_window_stack: vec![],
-            focus: id,
+            focus: pane_id,
             next_pane_id: 1,
             next_float_id: 0,
         }

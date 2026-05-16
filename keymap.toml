@@ -4,54 +4,54 @@
 
 [normal]
 # 移動系
-"w" = { service = "modal.cursor_move", type = "up" }
-"a" = { service = "modal.cursor_move", type = "left" }
-"s" = { service = "modal.cursor_move", type = "down" }
-"d" = { service = "modal.cursor_move", type = "right" }
-"up" = { service = "modal.cursor_move", type = "up" }
-"left" = { service = "modal.cursor_move", type = "left" }
-"down" = { service = "modal.cursor_move", type = "down" }
-"right" = { service = "modal.cursor_move", type = "right" }
-"S-w" = { service = "modal.cursor_move", type = "up", count = 5 }
-#"S-a" = { service = "modal.cursor_move", type = "word_backward" }
-"S-a" = { service = "modal.cursor_move", type = "left", count = 5 }
-"S-s" = { service = "modal.cursor_move", type = "down", count = 5 }
-#"S-d" = { service = "modal.cursor_move", type = "word_forward" }
-"S-d" = { service = "modal.cursor_move", type = "right", count = 5 }
-#"C-a" = { service = "modal.cursor_move", type = "line_start" }
-#"C-d" = { service = "modal.cursor_move", type = "line_end" }
+"w" = { service = "cursor_move", type = "up" }
+"a" = { service = "cursor_move", type = "left" }
+"s" = { service = "cursor_move", type = "down" }
+"d" = { service = "cursor_move", type = "right" }
+"up" = { service = "cursor_move", type = "up" }
+"left" = { service = "cursor_move", type = "left" }
+"down" = { service = "cursor_move", type = "down" }
+"right" = { service = "cursor_move", type = "right" }
+"S-w" = { service = "cursor_move", type = "up", count = 5 }
+#"S-a" = { service = "cursor_move", type = "word_backward" }
+"S-a" = { service = "cursor_move", type = "left", count = 5 }
+"S-s" = { service = "cursor_move", type = "down", count = 5 }
+#"S-d" = { service = "cursor_move", type = "word_forward" }
+"S-d" = { service = "cursor_move", type = "right", count = 5 }
+#"C-a" = { service = "cursor_move", type = "line_start" }
+#"C-d" = { service = "cursor_move", type = "line_end" }
 
 # 編集系
-#"h h" = { service = "modal.edit", args = "delete_line" }
-#"space" = { service = "modal.edit", args = "delete_char_forward" }
+#"h h" = { service = "edit", args = "delete_line" }
+#"space" = { service = "edit", args = "delete_char_forward" }
 
 # モード切替
-"j" = { service = "modal.set_mode", args = "insert" }
+"j" = { service = "set_mode", args = "insert" }
 "k" = [
-  { service = "modal.set_mode", args = "insert" },
-  { service = "modal.cursor_move", type = "right" },
+  { service = "set_mode", args = "insert" },
+  { service = "cursor_move", type = "right" },
 ]
 #"S-j" = [
-#  { service = "modal.edit", args = "new_line_above" },
-#  { service = "modal.set_mode", args = "insert" },
+#  { service = "edit", args = "new_line_above" },
+#  { service = "set_mode", args = "insert" },
 #]
 
 # Undo/Redo
-"i" = { service = "modal.edit", args = "undo" }
-"S-i" = { service = "modal.edit", args = "redo" }
+"i" = { service = "edit", args = "undo" }
+"S-i" = { service = "edit", args = "redo" }
 
 # コマンド
-";" = { service = "modal.set_mode", args = "command" }
-":" = { service = "modal.open_command" }
+";" = { service = "set_mode", args = "command" }
+":" = { service = "open_command" }
 
 [insert]
-"escape" = { service = "modal.set_mode", args = "normal" }
-"up" = { service = "modal.cursor_move", type = "up" }
-"left" = { service = "modal.cursor_move", type = "left" }
-"down" = { service = "modal.cursor_move", type = "down" }
-"right" = { service = "modal.cursor_move", type = "right" }
+"escape" = { service = "set_mode", args = "normal" }
+"up" = { service = "cursor_move", type = "up" }
+"left" = { service = "cursor_move", type = "left" }
+"down" = { service = "cursor_move", type = "down" }
+"right" = { service = "cursor_move", type = "right" }
 
 [command]
-"escape" = { service = "modal.set_mode", args = "normal" }
-"left" = { service = "modal.cursor_move", type = "left" }
-"right" = { service = "modal.cursor_move", type = "right" }
+"escape" = { service = "set_mode", args = "normal" }
+"left" = { service = "cursor_move", type = "left" }
+"right" = { service = "cursor_move", type = "right" }

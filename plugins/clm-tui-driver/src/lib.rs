@@ -67,7 +67,10 @@ impl Plugin for TuiDriverPlugin {
                                 kind: EventKind("key_input".to_string()),
                                 data: convert_key_event(key_event).into(),
                             },
-                            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+                            DispatchDescriptor::Consumable(vec![
+                                SortKey("priority".to_string()),
+                                SortKey("focus_pane".to_string()),
+                            ]),
                         );
                     }
                     TuiEvent::Resize(..) => {

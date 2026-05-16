@@ -2,8 +2,10 @@ use std::collections::HashMap;
 
 use clm_plugin_api::core::*;
 use clm_plugin_api::data::id::*;
+use clm_plugin_api::data::input::*;
 use clm_plugin_api::data::tui_layout::*;
 use clm_plugin_api::data::*;
+use clm_plugin_api::priority;
 
 #[derive(Debug)]
 pub struct PaneState {
@@ -529,6 +531,7 @@ impl ModalPlugin {
     fn pane_active(&mut self, pane_id: PaneId) -> Result<(), String> {
         assert!(self.active_pane.is_none());
         self.active_pane = Some(pane_id);
+        query_service("keymap.add_pane", &[pane_id.into(), "modal".into()])?;
         Ok(())
     }
     #[service]
@@ -542,6 +545,7 @@ impl ModalPlugin {
         }
         self.mode = Mode::Normal;
         self.active_pane = None;
+        query_service("keymap.remove_pane", &[pane_id.into()])?;
         Ok(())
     }
     #[service]
@@ -551,6 +555,56 @@ impl ModalPlugin {
     #[service]
     fn command_line(&self) -> Result<String, String> {
         Ok(self.command_line.clone())
+    }
+    fn default_editing(&mut self, key_event: KeyEvent) -> Result<EventResult, String> {
+        match self.mode {
+            Mode::Normal => return Ok(EventResult::Propagate),
+            Mode::Insert => match &key_event.logical_key {
+                LogicalKey::Character(c) => {
+                    self.edit(EditAction::InsertText(c.clone()))?;
+                }
+                LogicalKey::Named(named) => match named {
+                    NamedKey::Enter => {
+                        self.edit(EditAction::NewLine)?;
+                    }
+                    NamedKey::Backspace => {
+                        self.edit(EditAction::DeleteCharBackward)?;
+                    }
+                    NamedKey::Delete => {
+                        self.edit(EditAction::DeleteCharForward)?;
+                    }
+                    _ => return Ok(EventResult::Propagate),
+                },
+                _ => return Ok(EventResult::Propagate),
+            },
+            Mode::Command => match &key_event.logical_key {
+                LogicalKey::Character(c) => {
+                    self.command_line_action(CommandLineAction::InsertText(c.clone()))?;
+                }
+                LogicalKey::Named(named) => match named {
+                    NamedKey::Enter => {
+                        self.command_line_action(CommandLineAction::Execute)?;
+                    }
+                    NamedKey::Escape => {
+                        self.command_line_action(CommandLineAction::Clear)?;
+                        self.set_mode(Mode::Normal)?;
+                    }
+                    NamedKey::Backspace => {
+                        self.command_line_action(CommandLineAction::DeleteCharBackward)?;
+                    }
+                    NamedKey::Delete => {
+                        self.command_line_action(CommandLineAction::DeleteCharForward)?;
+                    }
+                    _ => return Ok(EventResult::Propagate),
+                },
+                _ => return Ok(EventResult::Propagate),
+            },
+        }
+        Ok(EventResult::Handled)
+    }
+    #[subscribe(priority = priority::DEFAULT)]
+    fn on_key_input(&mut self, key_event: KeyEvent) -> EventResult {
+        self.default_editing(key_event).unwrap()
     }
 }
 

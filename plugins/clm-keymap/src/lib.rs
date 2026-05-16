@@ -338,6 +338,7 @@ fn toml_to_value(toml: toml::Value) -> Value {
 #[derive(Debug)]
 pub struct KeymapPlugin {
     keymap: Keymap,
+    panes: HashMap<PaneId, String>,
 }
 impl Default for KeymapPlugin {
     fn default() -> Self {
@@ -349,98 +350,58 @@ impl KeymapPlugin {
         let config_path = "./keymap.toml";
         let config_file = std::fs::read_to_string(config_path).unwrap();
         let keymap = Keymap::new(toml::from_str(&config_file).unwrap()).unwrap();
-        Self { keymap }
+        Self {
+            keymap,
+            panes: HashMap::new(),
+        }
     }
 }
 #[clm_plugin_api::clm_handlers(name = "keymap")]
 impl KeymapPlugin {
-    #[subscribe(kind = "key_input", priority = priority::DEFAULT - 1)]
-    fn on_key_input_editing(&self, data: &Value) -> EventResult {
-        let Ok(key_event) = KeyEvent::try_from(data.clone()) else {
-            return EventResult::Propagate;
-        };
-        let mode = query_service("modal.mode", &[])
-            .ok()
-            .and_then(|mode| mode.try_into().ok())
-            .unwrap_or(Mode::Normal);
-        match mode {
-            Mode::Normal => return EventResult::Propagate,
-            Mode::Insert => match &key_event.logical_key {
-                LogicalKey::Character(c) => {
-                    query_edit(EditAction::InsertText(c.clone()));
-                }
-                LogicalKey::Named(named) => match named {
-                    NamedKey::Enter => {
-                        query_edit(EditAction::NewLine);
-                    }
-                    NamedKey::Backspace => {
-                        query_edit(EditAction::DeleteCharBackward);
-                    }
-                    NamedKey::Delete => {
-                        query_edit(EditAction::DeleteCharForward);
-                    }
-                    _ => return EventResult::Propagate,
-                },
-                _ => return EventResult::Propagate,
-            },
-            Mode::Command => match &key_event.logical_key {
-                LogicalKey::Character(c) => {
-                    query_command_line(CommandLineAction::InsertText(c.clone()));
-                }
-                LogicalKey::Named(named) => match named {
-                    NamedKey::Enter => {
-                        query_command_line(CommandLineAction::Execute);
-                    }
-                    NamedKey::Escape => {
-                        query_command_line(CommandLineAction::Clear);
-                        query_set_mode(Mode::Normal);
-                    }
-                    NamedKey::Backspace => {
-                        query_command_line(CommandLineAction::DeleteCharBackward);
-                    }
-                    NamedKey::Delete => {
-                        query_command_line(CommandLineAction::DeleteCharForward);
-                    }
-                    _ => return EventResult::Propagate,
-                },
-                _ => return EventResult::Propagate,
-            },
-        }
-        EventResult::Handled
-    }
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_key_input(&mut self, data: &Value) -> EventResult {
-        let Ok(key_event) = KeyEvent::try_from(data.clone()) else {
-            return EventResult::Propagate;
-        };
+    fn on_key_input(&mut self, key_event: KeyEvent) -> EventResult {
         let Some(key) = KeyPattern::from_key_event(&key_event) else {
             return EventResult::Propagate;
         };
         if key_event.state.is_pressed() {
-            if let Some(bindings) = self.keymap.feed(&key) {
-                for binding in bindings {
-                    match binding {
-                        Binding::Event(event) => {
-                            emit_event(
-                                event,
-                                DispatchDescriptor::Consumable(vec![SortKey(
-                                    "priority".to_string(),
-                                )]),
-                            );
-                        }
-                        Binding::Service(query) => {
-                            query_service(&query.name, &query.args).unwrap();
-                        }
-                        Binding::Command(command) => {
-                            execute_command(&command.name, &command.args);
-                        }
+            let Some(bindings) = self.keymap.feed(&key) else {
+                return EventResult::Handled;
+            };
+            let focus: PaneId = query_service("tui-compositor.focus_pane", &[])
+                .unwrap()
+                .try_into()
+                .unwrap();
+            let Some(handler) = self.panes.get(&focus) else {
+                return EventResult::Handled;
+            };
+            for binding in bindings {
+                match binding {
+                    Binding::Event(event) => {
+                        emit_event(
+                            event,
+                            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+                        );
+                    }
+                    Binding::Service(ServiceQuery { name, args }) => {
+                        query_service(&format!("{handler}.{name}"), &args).unwrap();
+                    }
+                    Binding::Command(command) => {
+                        execute_command(&command.name, &command.args);
                     }
                 }
-            } else {
-                return EventResult::Propagate;
             }
         }
         EventResult::Handled
+    }
+    #[service]
+    fn add_pane(&mut self, pane_id: PaneId, handler: String) -> Result<(), String> {
+        self.panes.insert(pane_id, handler);
+        Ok(())
+    }
+    #[service]
+    fn remove_pane(&mut self, pane_id: PaneId) -> Result<(), String> {
+        self.panes.remove(&pane_id);
+        Ok(())
     }
     #[subscribe(priority = priority::DEFAULT)]
     fn on_mode_changed(&mut self, data: &Value) -> EventResult {
