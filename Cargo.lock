@@ -194,6 +194,7 @@ version = "0.1.0-alpha.1"
 dependencies = [
  "clm-plugin-api",
  "clm-tui-compositor",
+ "unicode-width",
 ]
 
 [[package]]

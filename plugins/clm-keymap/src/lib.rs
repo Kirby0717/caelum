@@ -279,9 +279,10 @@ impl TrieNode {
 
 #[derive(Debug, Default)]
 struct Keymap {
-    pub modes: HashMap<String, Rc<TrieNode>>,
-    pub root: Option<Weak<TrieNode>>,
-    pub head: Option<Weak<TrieNode>>,
+    modes: HashMap<String, Rc<TrieNode>>,
+    last_mode: String,
+    root: Option<Weak<TrieNode>>,
+    head: Option<Weak<TrieNode>>,
 }
 impl Keymap {
     fn new(toml_table: toml::Table) -> Result<Self, ParseError> {
@@ -291,13 +292,23 @@ impl Keymap {
             .collect::<Result<HashMap<_, _>, ParseError>>()?;
         let root = modes.get(&Mode::default().to_string()).map(Rc::downgrade);
         let head = root.clone();
-        Ok(Self { modes, root, head })
+        Ok(Self {
+            modes,
+            last_mode: String::new(),
+            root,
+            head,
+        })
     }
-    fn change_mode(&mut self, mode: &str) {
-        self.root = self.modes.get(mode).map(Rc::downgrade);
-        self.head = self.root.clone();
-    }
-    fn feed(&mut self, key: &KeyPattern) -> Option<Vec<Binding>> {
+    fn feed(&mut self, key: &KeyPattern, mode: &str) -> Option<Vec<Binding>> {
+        if self.last_mode != mode {
+            self.last_mode = mode.to_string();
+            if let Some(root) = self.modes.get(mode) {
+                self.root = Some(Rc::downgrade(root));
+            } else {
+                self.root = None;
+            }
+            self.head = self.root.clone();
+        }
         let head = self.head.take()?.upgrade().unwrap();
         match head.children.get(key) {
             Some(child) => {
@@ -364,14 +375,19 @@ impl KeymapPlugin {
             return EventResult::Propagate;
         };
         if key_event.state.is_pressed() {
-            let Some(bindings) = self.keymap.feed(&key) else {
-                return EventResult::Handled;
-            };
             let focus: PaneId = query_service("tui-compositor.focus_pane", &[])
                 .unwrap()
                 .try_into()
                 .unwrap();
             let Some(handler) = self.panes.get(&focus) else {
+                return EventResult::Propagate;
+            };
+            let mode = || -> Result<String, String> {
+                Ok(query_service(&format!("{handler}.mode"), &[])?.try_into()?)
+            }()
+            .unwrap_or_default();
+            let Some(bindings) = self.keymap.feed(&key, &mode) else {
+                query_service(&format!("{handler}.key_input"), &[key_event.into()]).unwrap();
                 return EventResult::Handled;
             };
             for binding in bindings {
@@ -403,14 +419,6 @@ impl KeymapPlugin {
         self.panes.remove(&pane_id);
         Ok(())
     }
-    #[subscribe(priority = priority::DEFAULT)]
-    fn on_mode_changed(&mut self, data: &Value) -> EventResult {
-        let Ok(mode) = Mode::try_from(data.clone()) else {
-            return EventResult::Propagate;
-        };
-        self.keymap.change_mode(&mode.to_string());
-        EventResult::Handled
-    }
 }
 impl Plugin for KeymapPlugin {
     fn init(&mut self, reg: PluginRegistrar) {
@@ -427,17 +435,4 @@ impl Plugin for KeymapPlugin {
             Self::ON_KEY_INPUT,
         );
     }
-}
-
-pub fn query_set_mode(mode: Mode) {
-    let _ = query_service("modal.set_mode", &[mode.into()]);
-}
-pub fn query_cursor_move(cursor_move: CursorMove) {
-    let _ = query_service("modal.cursor_move", &[cursor_move.into()]);
-}
-pub fn query_edit(edit: EditAction) {
-    let _ = query_service("modal.edit", &[edit.into()]);
-}
-pub fn query_command_line(cmd_action: CommandLineAction) {
-    let _ = query_service("modal.command_line_action", &[cmd_action.into()]);
 }

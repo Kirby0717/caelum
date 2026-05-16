@@ -120,35 +120,26 @@ impl PaneState {
             Mode::Command => execute!(stdout(), Print("-- COMMAND -- :"), Print(&command_line))?,
         }*/
         // カーソルの設定
-        match mode {
-            Mode::Normal | Mode::Insert => {
-                let x = cursor_line[..cursor.byte_col_idx].width();
-                commands.push(DrawCommand::SetCursor {
-                    position: (
-                        x.saturating_sub(view_offset.0) as u16,
-                        cursor.line_idx.saturating_sub(view_offset.1) as u16,
-                    ),
-                    style: match mode {
-                        Mode::Normal => CursorStyle::SteadyBlock,
-                        Mode::Insert => CursorStyle::SteadyBar,
-                        _ => unreachable!(),
-                    },
-                });
-            }
-            _ => {}
-        }
+        let x = cursor_line[..cursor.byte_col_idx].width();
+        commands.push(DrawCommand::SetCursor {
+            position: (
+                x.saturating_sub(view_offset.0) as u16,
+                cursor.line_idx.saturating_sub(view_offset.1) as u16,
+            ),
+            style: match mode {
+                Mode::Normal => CursorStyle::SteadyBlock,
+                Mode::Insert => CursorStyle::SteadyBar,
+            },
+        });
         Ok(commands)
     }
 }
 #[derive(Debug)]
 pub struct ModalPlugin {
     mode: Mode,
-    command_line: String,
-    command_line_cursor: usize,
     panes: HashMap<PaneId, PaneState>,
-    active_pane: Option<(PaneId, SubscriptionId)>,
+    active_pane: Option<PaneId>,
     key_holder: Option<LockToken>,
-    reg: Option<PluginRegistrar>,
 }
 impl Default for ModalPlugin {
     fn default() -> Self {
@@ -158,22 +149,18 @@ impl Default for ModalPlugin {
 impl ModalPlugin {
     pub fn new() -> Self {
         let mode = Mode::Normal;
-        let command_line = String::new();
         Self {
             mode,
-            command_line,
-            command_line_cursor: 0,
             panes: HashMap::new(),
             active_pane: None,
             key_holder: None,
-            reg: None,
         }
     }
     fn active_pane_state(&self) -> Option<&PaneState> {
-        self.panes.get(&self.active_pane?.0)
+        self.panes.get(&self.active_pane?)
     }
     fn active_pane_state_mut(&mut self) -> Option<&mut PaneState> {
-        self.panes.get_mut(&self.active_pane?.0)
+        self.panes.get_mut(&self.active_pane?)
     }
     fn clamp_cursor(&mut self) {
         let Some(active_state) = self.active_pane_state() else {
@@ -211,10 +198,6 @@ impl ModalPlugin {
                 }
             }
         }
-        if self.mode == Mode::Command && mode != Mode::Command {
-            self.command_line_cursor = 0;
-            self.command_line.clear();
-        }
         self.mode = mode;
         self.clamp_cursor();
         emit_event(
@@ -224,13 +207,7 @@ impl ModalPlugin {
             },
             DispatchDescriptor::Broadcast,
         );
-        emit_event(
-            Event {
-                kind: EventKind("request_redraw".to_string()),
-                data: Value::Null,
-            },
-            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-        );
+        request_redraw();
         Ok(())
     }
     #[service]
@@ -273,36 +250,8 @@ impl ModalPlugin {
                 }
                 self.clamp_cursor();
             }
-            Mode::Command => match mv {
-                CursorMove::Left { count } => {
-                    if count == 0 {
-                        return Ok(());
-                    }
-                    let left = &self.command_line[..self.command_line_cursor];
-                    if let Some((i, _)) = left.char_indices().nth_back(count - 1) {
-                        self.command_line_cursor = i;
-                    } else {
-                        self.command_line_cursor = 0;
-                    }
-                }
-                CursorMove::Right { count } => {
-                    let right = &self.command_line[self.command_line_cursor..];
-                    if let Some((i, _)) = right.char_indices().nth(count) {
-                        self.command_line_cursor += i;
-                    } else {
-                        self.command_line_cursor = self.command_line.len();
-                    }
-                }
-                _ => {}
-            },
         }
-        emit_event(
-            Event {
-                kind: EventKind("request_redraw".to_string()),
-                data: Value::Null,
-            },
-            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-        );
+        request_redraw();
         Ok(())
     }
     #[service]
@@ -397,67 +346,7 @@ impl ModalPlugin {
         }
         state.cursor = cursor;
         self.clamp_cursor();
-        emit_event(
-            Event {
-                kind: EventKind("request_redraw".to_string()),
-                data: Value::Null,
-            },
-            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-        );
-        Ok(())
-    }
-    #[service]
-    fn command_line_action(&mut self, cmd_action: CommandLineAction) -> Result<(), String> {
-        let command_line = &mut self.command_line;
-        let cursor = self.command_line_cursor;
-        match cmd_action {
-            CommandLineAction::InsertText(text) => {
-                command_line.insert_str(cursor, &text);
-                self.command_line_cursor += text.len();
-            }
-            CommandLineAction::DeleteCharForward => {
-                if command_line.len() < cursor {
-                    return Ok(());
-                }
-                let next_size = command_line[cursor..].chars().next().unwrap().len_utf8();
-                command_line.drain(cursor..cursor + next_size);
-            }
-            CommandLineAction::DeleteCharBackward => {
-                if cursor != 0 {
-                    return Ok(());
-                }
-                let prev_size = command_line[..cursor]
-                    .chars()
-                    .next_back()
-                    .unwrap()
-                    .len_utf8();
-                command_line.drain(cursor - prev_size..cursor);
-                self.command_line_cursor -= prev_size;
-            }
-            CommandLineAction::Execute => {
-                let parsed = command_line
-                    .split_whitespace()
-                    .map(String::from)
-                    .collect::<Vec<_>>();
-                if !parsed.is_empty() {
-                    execute_command(&parsed[0], &parsed[1..]);
-                }
-                self.command_line_cursor = 0;
-                command_line.clear();
-                self.mode = Mode::Normal;
-            }
-            CommandLineAction::Clear => {
-                self.command_line_cursor = 0;
-                command_line.clear();
-            }
-        }
-        emit_event(
-            Event {
-                kind: EventKind("request_redraw".to_string()),
-                data: Value::Null,
-            },
-            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-        );
+        request_redraw();
         Ok(())
     }
     #[service]
@@ -474,13 +363,7 @@ impl ModalPlugin {
             byte_col_idx: 0,
         };
         self.clamp_cursor();
-        emit_event(
-            Event {
-                kind: EventKind("request_redraw".to_string()),
-                data: Value::Null,
-            },
-            DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
-        );
+        request_redraw();
         Ok(())
     }
     #[service]
@@ -531,17 +414,13 @@ impl ModalPlugin {
     #[service]
     fn pane_active(&mut self, pane_id: PaneId) -> Result<(), String> {
         assert!(self.active_pane.is_none());
-        let subscription_id =
-            self.reg
-                .unwrap()
-                .subscribe("key_input", [].into(), Self::ON_KEY_INPUT);
-        self.active_pane = Some((pane_id, subscription_id));
+        self.active_pane = Some(pane_id);
         query_service("keymap.add_pane", &[pane_id.into(), "modal".into()])?;
         Ok(())
     }
     #[service]
     fn pane_inactive(&mut self, pane_id: PaneId) -> Result<(), String> {
-        assert!(self.active_pane.is_some_and(|(id, _)| id == pane_id));
+        assert!(self.active_pane.is_some_and(|id| id == pane_id));
         if let Some(key) = self.key_holder {
             let state = self.active_pane_state().unwrap();
             if let Err(e) = query_service("buffer.unlock", &[state.buffer_id.into(), key.into()]) {
@@ -549,22 +428,17 @@ impl ModalPlugin {
             }
         }
         self.mode = Mode::Normal;
-        let (pane_id, subscription_id) = self.active_pane.take().unwrap();
+        let pane_id = self.active_pane.take().unwrap();
         query_service("keymap.remove_pane", &[pane_id.into()])?;
-        unsubscribe(subscription_id);
         Ok(())
     }
     #[service]
-    fn mode(&self) -> Result<Mode, String> {
-        Ok(self.mode)
+    fn mode(&self) -> Result<String, String> {
+        Ok(self.mode.to_string())
     }
     #[service]
-    fn command_line(&self) -> Result<String, String> {
-        Ok(self.command_line.clone())
-    }
-    fn default_editing(&mut self, key_event: KeyEvent) -> Result<EventResult, String> {
+    fn key_input(&mut self, key_event: KeyEvent) -> Result<(), String> {
         match self.mode {
-            Mode::Normal => return Ok(EventResult::Propagate),
             Mode::Insert => match &key_event.logical_key {
                 LogicalKey::Character(c) => {
                     self.edit(EditAction::InsertText(c.clone()))?;
@@ -579,39 +453,13 @@ impl ModalPlugin {
                     NamedKey::Delete => {
                         self.edit(EditAction::DeleteCharForward)?;
                     }
-                    _ => return Ok(EventResult::Propagate),
+                    _ => return Ok(()),
                 },
-                _ => return Ok(EventResult::Propagate),
+                _ => return Ok(()),
             },
-            Mode::Command => match &key_event.logical_key {
-                LogicalKey::Character(c) => {
-                    self.command_line_action(CommandLineAction::InsertText(c.clone()))?;
-                }
-                LogicalKey::Named(named) => match named {
-                    NamedKey::Enter => {
-                        self.command_line_action(CommandLineAction::Execute)?;
-                    }
-                    NamedKey::Escape => {
-                        self.command_line_action(CommandLineAction::Clear)?;
-                        self.set_mode(Mode::Normal)?;
-                    }
-                    NamedKey::Backspace => {
-                        self.command_line_action(CommandLineAction::DeleteCharBackward)?;
-                    }
-                    NamedKey::Delete => {
-                        self.command_line_action(CommandLineAction::DeleteCharForward)?;
-                    }
-                    _ => return Ok(EventResult::Propagate),
-                },
-                _ => return Ok(EventResult::Propagate),
-            },
+            _ => return Ok(()),
         }
-        Ok(EventResult::Handled)
-    }
-    #[subscribe]
-    #[manually_register]
-    fn on_key_input(&mut self, key_event: KeyEvent) -> EventResult {
-        self.default_editing(key_event).unwrap()
+        Ok(())
     }
 }
 

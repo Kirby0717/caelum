@@ -10,3 +10,4 @@ repository.workspace = true
 [dependencies]
 clm-plugin-api = { path = "../../clm-plugin-api" }
 clm-tui-compositor = { path = "../clm-tui-compositor" }
+unicode-width = "0.2"

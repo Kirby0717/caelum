@@ -338,6 +338,13 @@ impl TuiCompositorPlugin {
             self.focus_window_stack.push(float_id);
             query_service(&format!("{pane_handler}.pane_active"), &[pane_id.into()]).unwrap();
             self.focus = pane_id;
+            emit_event(
+                Event {
+                    kind: EventKind("change_focus".to_string()),
+                    data: pane_id.into(),
+                },
+                DispatchDescriptor::Consumable(vec![SortKey("priority".to_string())]),
+            );
         }
 
         request_redraw();

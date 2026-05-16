@@ -41,8 +41,7 @@
 "S-i" = { service = "edit", args = "redo" }
 
 # コマンド
-";" = { service = "set_mode", args = "command" }
-":" = { service = "open_command" }
+";" = { service = "open_command" }
 
 [insert]
 "escape" = { service = "set_mode", args = "normal" }
@@ -52,6 +51,8 @@
 "right" = { service = "cursor_move", type = "right" }
 
 [command]
-"escape" = { service = "set_mode", args = "normal" }
+"escape" = { service = "not_exist" }
+#"escape" = { service = "close" }
+"enter" = { service = "execute" }
 "left" = { service = "cursor_move", type = "left" }
 "right" = { service = "cursor_move", type = "right" }
