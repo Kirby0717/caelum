@@ -346,8 +346,8 @@ impl TuiCompositorPlugin {
     }
 }
 impl Plugin for TuiCompositorPlugin {
-    fn init(&mut self, reg: clm_plugin_api::core::PluginRegistrar) {
-        Self::register_service_and_subscribe(&reg);
+    fn init(&mut self, reg: PluginRegistrar) {
+        Self::register_service_and_subscribe(reg);
         register_resolver(
             SortKey("focus_pane".to_string()),
             PropertyKey("pane_id".to_string()),

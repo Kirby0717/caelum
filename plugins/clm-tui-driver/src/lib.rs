@@ -32,7 +32,7 @@ impl TuiDriverPlugin {
 #[clm_plugin_api::clm_handlers(name = "tui-driver")]
 impl TuiDriverPlugin {
     #[subscribe(priority = priority::DEFAULT)]
-    fn on_request_redraw(&self, _data: &Value) -> EventResult {
+    fn on_request_redraw(&self) -> EventResult {
         let terminal_size = crossterm::terminal::size().unwrap();
         let commands: Vec<DrawCommand> =
             query_service("tui-compositor.build_frame", &[terminal_size.into()])
@@ -44,8 +44,8 @@ impl TuiDriverPlugin {
     }
 }
 impl Plugin for TuiDriverPlugin {
-    fn init(&mut self, reg: clm_plugin_api::core::PluginRegistrar) {
-        Self::register_service_and_subscribe(&reg);
+    fn init(&mut self, reg: PluginRegistrar) {
+        Self::register_service_and_subscribe(reg);
         spawn_async(async {
             use crossterm::event::{Event as TuiEvent, read};
 

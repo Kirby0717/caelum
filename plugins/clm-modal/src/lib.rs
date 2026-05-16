@@ -5,7 +5,6 @@ use clm_plugin_api::data::id::*;
 use clm_plugin_api::data::input::*;
 use clm_plugin_api::data::tui_layout::*;
 use clm_plugin_api::data::*;
-use clm_plugin_api::priority;
 
 #[derive(Debug)]
 pub struct PaneState {
@@ -147,8 +146,9 @@ pub struct ModalPlugin {
     command_line: String,
     command_line_cursor: usize,
     panes: HashMap<PaneId, PaneState>,
-    active_pane: Option<PaneId>,
+    active_pane: Option<(PaneId, SubscriptionId)>,
     key_holder: Option<LockToken>,
+    reg: Option<PluginRegistrar>,
 }
 impl Default for ModalPlugin {
     fn default() -> Self {
@@ -166,13 +166,14 @@ impl ModalPlugin {
             panes: HashMap::new(),
             active_pane: None,
             key_holder: None,
+            reg: None,
         }
     }
     fn active_pane_state(&self) -> Option<&PaneState> {
-        self.panes.get(&self.active_pane?)
+        self.panes.get(&self.active_pane?.0)
     }
     fn active_pane_state_mut(&mut self) -> Option<&mut PaneState> {
-        self.panes.get_mut(&self.active_pane?)
+        self.panes.get_mut(&self.active_pane?.0)
     }
     fn clamp_cursor(&mut self) {
         let Some(active_state) = self.active_pane_state() else {
@@ -530,13 +531,17 @@ impl ModalPlugin {
     #[service]
     fn pane_active(&mut self, pane_id: PaneId) -> Result<(), String> {
         assert!(self.active_pane.is_none());
-        self.active_pane = Some(pane_id);
+        let subscription_id =
+            self.reg
+                .unwrap()
+                .subscribe("key_input", [].into(), Self::ON_KEY_INPUT);
+        self.active_pane = Some((pane_id, subscription_id));
         query_service("keymap.add_pane", &[pane_id.into(), "modal".into()])?;
         Ok(())
     }
     #[service]
     fn pane_inactive(&mut self, pane_id: PaneId) -> Result<(), String> {
-        assert_eq!(self.active_pane, Some(pane_id));
+        assert!(self.active_pane.is_some_and(|(id, _)| id == pane_id));
         if let Some(key) = self.key_holder {
             let state = self.active_pane_state().unwrap();
             if let Err(e) = query_service("buffer.unlock", &[state.buffer_id.into(), key.into()]) {
@@ -544,8 +549,9 @@ impl ModalPlugin {
             }
         }
         self.mode = Mode::Normal;
-        self.active_pane = None;
+        let (pane_id, subscription_id) = self.active_pane.take().unwrap();
         query_service("keymap.remove_pane", &[pane_id.into()])?;
+        unsubscribe(subscription_id);
         Ok(())
     }
     #[service]
@@ -602,7 +608,8 @@ impl ModalPlugin {
         }
         Ok(EventResult::Handled)
     }
-    #[subscribe(priority = priority::DEFAULT)]
+    #[subscribe]
+    #[manually_register]
     fn on_key_input(&mut self, key_event: KeyEvent) -> EventResult {
         self.default_editing(key_event).unwrap()
     }
@@ -610,7 +617,7 @@ impl ModalPlugin {
 
 impl Plugin for ModalPlugin {
     fn init(&mut self, reg: PluginRegistrar) {
-        Self::register_service_and_subscribe(&reg);
+        Self::register_service_and_subscribe(reg);
         register_command(
             "q",
             Box::new(|_| {

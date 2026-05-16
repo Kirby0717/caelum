@@ -57,6 +57,7 @@ use crate::value::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct EventKind(pub String);
+#[derive(Debug, Clone, Copy)]
 pub struct PluginRegistrar {
     pub(crate) plugin_id: PluginId,
 }

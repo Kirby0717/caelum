@@ -1,11 +1,11 @@
 pub use clm_core::event::{
     DispatchDescriptor, Event, EventKind, EventResult, Plugin, PluginId, PluginRegistrar,
-    PropertyKey, RawEventHandler, SortKey, Subscription,
+    PropertyKey, RawEventHandler, SortKey, Subscription, SubscriptionId,
 };
 pub use clm_core::registry::{
     RawMutServiceHandler, RawServiceHandler, Resolver, Service, add_plugin, dispatch_next,
     emit_event, execute_command, park_until_event, query_service, quit, register_command,
-    register_resolver,
+    register_resolver, unsubscribe,
 };
 pub use clm_core::runtime::{emit_event_async, init_async_runtime, sleep, spawn_async};
 pub use clm_core::value::{Value, ValueConvertError, from_value, to_value};

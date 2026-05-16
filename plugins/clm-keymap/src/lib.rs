@@ -414,7 +414,7 @@ impl KeymapPlugin {
 }
 impl Plugin for KeymapPlugin {
     fn init(&mut self, reg: PluginRegistrar) {
-        Self::register_service_and_subscribe(&reg);
+        Self::register_service_and_subscribe(reg);
         reg.subscribe(
             "key_input",
             HashMap::from([

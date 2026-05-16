@@ -414,6 +414,6 @@ impl BufferPlugin {
 
 impl Plugin for BufferPlugin {
     fn init(&mut self, reg: PluginRegistrar) {
-        Self::register_service_and_subscribe(&reg);
+        Self::register_service_and_subscribe(reg);
     }
 }

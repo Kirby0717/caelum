@@ -111,7 +111,7 @@ impl CommandLinePlugin {
     }
 }
 impl Plugin for CommandLinePlugin {
-    fn init(&mut self, reg: clm_plugin_api::core::PluginRegistrar) {
-        Self::register_service_and_subscribe(&reg);
+    fn init(&mut self, reg: PluginRegistrar) {
+        Self::register_service_and_subscribe(reg);
     }
 }

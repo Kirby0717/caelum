@@ -97,12 +97,16 @@ pub fn clm_handlers(
 
         let mut subscribe_attr = None;
         let mut service_attr = None;
+        let mut manually_register_attr = false;
         method.attrs.retain(|attr| {
             if attr.path().is_ident("subscribe") {
                 subscribe_attr = Some(parse_subscribe_attr(attr));
                 false
             } else if attr.path().is_ident("service") {
                 service_attr = Some(parse_service_attr(attr));
+                false
+            } else if attr.path().is_ident("manually_register") {
+                manually_register_attr = true;
                 false
             } else {
                 true
@@ -166,18 +170,20 @@ pub fn clm_handlers(
                     };
                 });
             }
-            subscribes.push(SubscribeInfo {
-                kind: subscribe_attr.kind.unwrap_or({
-                    let method_name = method_name.to_string();
-                    if let Some(kind) = method_name.strip_prefix("on_") {
-                        kind.to_string()
-                    } else {
-                        method_name
-                    }
-                }),
-                const_name: const_name.clone(),
-                properties: subscribe_attr.properties,
-            });
+            if !manually_register_attr {
+                subscribes.push(SubscribeInfo {
+                    kind: subscribe_attr.kind.unwrap_or({
+                        let method_name = method_name.to_string();
+                        if let Some(kind) = method_name.strip_prefix("on_") {
+                            kind.to_string()
+                        } else {
+                            method_name
+                        }
+                    }),
+                    const_name: const_name.clone(),
+                    properties: subscribe_attr.properties,
+                });
+            }
         }
         if let Some(service_attr) = service_attr {
             let (arg_idents, (arg_types, arg_indices)): (Vec<_>, (Vec<_>, Vec<_>)) = sig
@@ -222,13 +228,15 @@ pub fn clm_handlers(
                     };
                 });
             }
-            services.push(ServiceInfo {
-                name: service_attr
-                    .name
-                    .unwrap_or(plugin_name.clone() + "." + &method_name.to_string()),
-                const_name,
-                mutability: receiver.mutability.is_some(),
-            });
+            if !manually_register_attr {
+                services.push(ServiceInfo {
+                    name: service_attr
+                        .name
+                        .unwrap_or(plugin_name.clone() + "." + &method_name.to_string()),
+                    const_name,
+                    mutability: receiver.mutability.is_some(),
+                });
+            }
         }
     }
 
@@ -282,7 +290,7 @@ pub fn clm_handlers(
         .collect();
     impl_block.items.push(
         syn::parse2(quote! {
-            fn register_service_and_subscribe(reg: &::clm_plugin_api::core::PluginRegistrar) {
+            fn register_service_and_subscribe(reg: ::clm_plugin_api::core::PluginRegistrar) {
                 #(#subscribe_stmts)*
                 #(#service_stmts)*
             }
